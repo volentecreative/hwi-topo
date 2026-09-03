@@ -46,7 +46,7 @@
   const THREE_URL = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
   let threeReady = null;
   function loadThree(){ if(global.THREE) return Promise.resolve(); if(threeReady) return threeReady; threeReady = new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=THREE_URL; s.onload=res; s.onerror=()=>rej(new Error('three.js failed to load')); document.head.appendChild(s); }); return threeReady; }
-  function injectCSS(){ if(document.getElementById('topo-turntable-css')) return; const st=document.createElement('style'); st.id='topo-turntable-css'; st.textContent='.topo-turntable canvas{display:block;width:100%;height:100%}.topo-turntable .topo-label{position:absolute;transform:translate(-50%,-100%);padding:0 0 6px 0;letter-spacing:.01em;white-space:nowrap;pointer-events:none;user-select:none}.topo-turntable .topo-label::before{content:"";position:absolute;left:50%;bottom:0;width:6px;height:6px;transform:translate(-50%,50%);background:currentColor}'; document.head.appendChild(st); }
+  function injectCSS(){ if(document.getElementById('topo-turntable-css')) return; const st=document.createElement('style'); st.id='topo-turntable-css'; st.textContent='.topo-turntable{position:relative}.topo-turntable canvas{position:absolute;top:0;left:0;display:block;width:100%;height:100%}.topo-turntable .topo-label{position:absolute;transform:translate(-50%,-100%);padding:0 0 6px 0;letter-spacing:.01em;white-space:nowrap;pointer-events:none;user-select:none}.topo-turntable .topo-label::before{content:"";position:absolute;left:50%;bottom:0;width:6px;height:6px;transform:translate(-50%,50%);background:currentColor}'; document.head.appendChild(st); }
 
   const COLOR_KEYS = ['background','lineColor','indexLineColor','blockColor','labelColor'];
   function resolveColor(host, v){
@@ -95,8 +95,21 @@
     // ---- scene
     const labelEl=document.createElement('div'); labelEl.className='topo-label'; host.appendChild(labelEl);
     host.style.background=CONFIG.background; if(getComputedStyle(host).position==='static') host.style.position='relative'; host.style.overflow='hidden';
-    if(!host.style.width && host.clientWidth===0) host.style.width='100%';
-    if(host.clientHeight<10){ host.style.aspectRatio = CONFIG.aspectRatio || '16 / 10'; }   // no height set: size by aspect ratio instead of collapsing
+    // The canvas is absolutely positioned (see injectCSS), so it never contributes to the host's own size:
+    // without that, a host whose width or height comes from its content is sized by the canvas, which is in turn
+    // sized from the host — a loop with memory that keeps whatever size the layout last shrank to.
+    let ownWidth=false;
+    function ensureBox(){
+      if(!host.style.width && host.clientWidth===0) host.style.width='100%';
+      if(host.clientWidth===0 && host.parentElement) ownWidth=true;   // width came from the (now out-of-flow) content: borrow the parent's instead
+      if(ownWidth && host.parentElement){ const prev=host.style.width; host.style.width='0px'; const pw=host.parentElement.clientWidth; host.style.width = pw>0 ? pw+'px' : prev; }   // measured with the host collapsed, so the parent can't be sized by it
+      // Re-derive the height fallback every time rather than freezing the one from mount: a breakpoint can hand the
+      // host a height, or take it away, long after. Leaving a stale aspect-ratio behind also inflates the element's
+      // min-content width, which pushes flex and grid parents wider than they should be.
+      if(host.style.aspectRatio) host.style.aspectRatio='';
+      if(host.clientHeight<10) host.style.aspectRatio = CONFIG.aspectRatio || '16 / 10';   // no height from CSS: size by aspect ratio instead of collapsing
+    }
+    ensureBox();
     const renderer=new THREE.WebGLRenderer({antialias:true, alpha:true}); renderer.setPixelRatio(Math.min(devicePixelRatio,2)); renderer.setClearColor(0x000000,0); host.prepend(renderer.domElement);
     const scene=new THREE.Scene(); const camera=new THREE.PerspectiveCamera(CONFIG.lens,1,10,200000);
     scene.add(new THREE.HemisphereLight(0xffffff,0x444444,0.9)); const sun=new THREE.DirectionalLight(0xffffff,0.35); sun.position.set(1,2,1); scene.add(sun);
@@ -130,27 +143,36 @@
     
     // ---- camera + loop
     const pol=(90-CONFIG.tilt)*Math.PI/180, pivot=new THREE.Vector3(0,(BASE+maxY)/2,0);
-    let az=-(CONFIG.startHeading||0)*Math.PI/180, dragging=null, lastPointer=0, dist=R*3;
+    let az=-(CONFIG.startHeading||0)*Math.PI/180, dragging=null, lastPointer=0, dist=R*3, alive=true;
     function placeCam(a){ camera.position.set(pivot.x+dist*Math.sin(pol)*Math.sin(a), pivot.y+dist*Math.cos(pol), pivot.z+dist*Math.sin(pol)*Math.cos(a)); camera.lookAt(pivot); camera.updateMatrixWorld(); }
     // Fit by measuring what the camera actually sees: project the block's corners (and the pin top) over a full turn,
     // then choose the distance so the widest projected extent fills the container, and shift the pivot so it sits centred.
     const fitPts=[]; for(const sx of [-1,1]) for(const sz of [-1,1]){ fitPts.push(new THREE.Vector3(sx*R,BOTTOM,sz*R), new THREE.Vector3(sx*R,maxY,sz*R)); } if(pinTop) fitPts.push(new THREE.Vector3(0,pinTop,0));
     function fit(){
-      const w=host.clientWidth,h=host.clientHeight; if(!w||!h) return;
+      ensureBox();
+      const w=host.clientWidth,h=host.clientHeight;
+      if(!w||!h){ pendingFit=true; return; }        // hidden or not laid out yet: try again once it can be measured
+      pendingFit=false;
+      const pr=Math.min(devicePixelRatio||1,2); if(pr!==renderer.getPixelRatio()) renderer.setPixelRatio(pr);   // browser zoom / a move to another display
       renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix();
-      const margin=1/(CONFIG.fitMargin||1.1), saveY=pivot.y; pivot.y=(BASE+maxY)/2;
+      dist=R*3;                                      // always solve from the same seed, so a fit never inherits an earlier one
+      const margin=1/(CONFIG.fitMargin||1.1); pivot.y=(BASE+maxY)/2;
       const measure=()=>{ let minX=1e9,maxX=-1e9,minY=1e9,maxY2=-1e9; for(let k=0;k<24;k++){ placeCam(k/24*Math.PI*2); for(const p of fitPts){ const q=p.clone().project(camera); if(q.x<minX)minX=q.x; if(q.x>maxX)maxX=q.x; if(q.y<minY)minY=q.y; if(q.y>maxY2)maxY2=q.y; } } return {minX,maxX,minY,maxY:maxY2}; };
       for(let i=0;i<4;i++){ const b=measure(); const ext=Math.max((b.maxX-b.minX)/2,(b.maxY-b.minY)/2)/margin; if(ext>0) dist*=ext; }
       const b=measure(); const cy=(b.minY+b.maxY)/2;           // vertical centring: nudge the pivot so the projected box is centred
       pivot.y += cy*dist*Math.tan(camera.fov*Math.PI/360)*0.9;
+      camera.near=Math.max(1,Math.min(dist*0.05,Math.max(1,dist-R*3))); camera.far=dist+R*10; camera.updateProjectionMatrix();   // frustum follows the distance: a narrow box pushes the camera far back
       placeCam(az);
     }
-    fit(); addEventListener('resize',fit);
-    if(global.ResizeObserver){ const ro=new ResizeObserver(()=>fit()); ro.observe(host); }
+    let pendingFit=false, fitQueued=false;
+    const requestFit=()=>{ if(fitQueued) return; fitQueued=true; requestAnimationFrame(()=>{ fitQueued=false; if(alive) fit(); }); };   // one fit per frame, however many resize events arrive
+    fit(); addEventListener('resize',requestFit);
+    const ro = global.ResizeObserver ? new ResizeObserver(requestFit) : null; if(ro) ro.observe(host);
     if(!CONFIG.dragToOrbit) renderer.domElement.style.pointerEvents='none';
     if(CONFIG.dragToOrbit){ const el=renderer.domElement; el.style.cursor='grab'; el.addEventListener('pointerdown',e=>{ dragging={x:e.clientX}; el.setPointerCapture(e.pointerId); }); el.addEventListener('pointermove',e=>{ if(dragging){ az-=(e.clientX-dragging.x)*0.006; dragging.x=e.clientX; lastPointer=performance.now(); } }); el.addEventListener('pointerup',()=>dragging=null); }
     const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
-    let visible=true, alive=true; const io=new IntersectionObserver(en=>visible=en[0].isIntersecting); io.observe(host);
+    let visible=true;
+    const io=new IntersectionObserver(en=>visible=en[0].isIntersecting); io.observe(host);
     // follow the page's theme: re-read any var(...) colours when they change (Webflow light/dark toggles, data-theme, prefers-color-scheme)
     let lastColors=JSON.stringify(COLOR_KEYS.map(k=>CONFIG[k]));
     function applyColors(){
@@ -164,14 +186,14 @@
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyColors);
     let last=performance.now();
     function frame(now){
-      if(!alive) return; requestAnimationFrame(frame); const dt=(now-last)/1000; last=now; if(!visible) return;
+      if(!alive) return; requestAnimationFrame(frame); const dt=(now-last)/1000; last=now; if(pendingFit) fit(); if(!visible) return;
       if(CONFIG.rotateSeconds>0 && !reduced && !dragging && now-lastPointer>1500) az+=dt*Math.PI*2/CONFIG.rotateSeconds;
       placeCam(az);
       renderer.render(scene,camera);
       if(CONFIG.label){ const p=new THREE.Vector3(0,pinTop,0).project(camera); labelEl.style.left=((p.x+1)/2*host.clientWidth)+'px'; labelEl.style.top=((1-p.y)/2*host.clientHeight)+'px'; }
     }
     requestAnimationFrame(frame);
-    return { destroy(){ alive=false; io.disconnect(); renderer.dispose(); renderer.domElement.remove(); labelEl.remove(); }, setAzimuth(a){ az=a; }, get azimuth(){ return az; } };
+    return { destroy(){ alive=false; io.disconnect(); if(ro) ro.disconnect(); removeEventListener('resize',requestFit); clearInterval(themeWatch); renderer.dispose(); renderer.domElement.remove(); labelEl.remove(); }, setAzimuth(a){ az=a; }, get azimuth(){ return az; } };
     
   }
 
