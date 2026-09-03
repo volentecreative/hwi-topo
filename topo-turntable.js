@@ -98,16 +98,28 @@
     // The canvas is absolutely positioned (see injectCSS), so it never contributes to the host's own size:
     // without that, a host whose width or height comes from its content is sized by the canvas, which is in turn
     // sized from the host — a loop with memory that keeps whatever size the layout last shrank to.
-    let ownWidth=false;
+    const RATIO = CONFIG.aspectRatio || '16 / 10';
+    let derivedWidth=false;
     function ensureBox(){
       if(!host.style.width && host.clientWidth===0) host.style.width='100%';
-      if(host.clientWidth===0 && host.parentElement) ownWidth=true;   // width came from the (now out-of-flow) content: borrow the parent's instead
-      if(ownWidth && host.parentElement){ const prev=host.style.width; host.style.width='0px'; const pw=host.parentElement.clientWidth; host.style.width = pw>0 ? pw+'px' : prev; }   // measured with the host collapsed, so the parent can't be sized by it
-      // Re-derive the height fallback every time rather than freezing the one from mount: a breakpoint can hand the
-      // host a height, or take it away, long after. Leaving a stale aspect-ratio behind also inflates the element's
-      // min-content width, which pushes flex and grid parents wider than they should be.
+      // Re-derive the fallbacks every time rather than freezing the ones from mount: a breakpoint can hand the host a
+      // height, or take it away, long after. A stale aspect-ratio also inflates the element's min-content width, which
+      // pushes flex and grid parents wider than they should be.
       if(host.style.aspectRatio) host.style.aspectRatio='';
-      if(host.clientHeight<10) host.style.aspectRatio = CONFIG.aspectRatio || '16 / 10';   // no height from CSS: size by aspect ratio instead of collapsing
+      if(host.clientHeight<10) host.style.aspectRatio = RATIO;   // no height from CSS: size by aspect ratio instead of collapsing
+      if(host.clientWidth===0 || derivedWidth){
+        // Nothing gives the element a width — a `width:100%` against an ancestor that is itself sized by its content
+        // (a Webflow embed inside a flex row, an inline-block, a max-content grid track) resolves to nothing, and the
+        // canvas is out of flow so it no longer props that ancestor open. Ask the aspect ratio what width it wants,
+        // then cap that at the nearest ancestor that does have one, so the embed shows up without overflowing.
+        derivedWidth=true;
+        host.style.width='auto'; if(!host.style.aspectRatio) host.style.aspectRatio = RATIO;
+        const want=host.clientWidth;
+        host.style.width='0px';   // collapsed while measuring the ancestor, so the host can't be what widens it
+        let cap=0; for(let el=host.parentElement; el; el=el.parentElement) if(el.clientWidth>0){ cap=el.clientWidth; break; }
+        const w = cap>0 ? Math.min(want||cap, cap) : want;
+        host.style.width = w>0 ? w+'px' : 'auto';
+      }
     }
     ensureBox();
     const renderer=new THREE.WebGLRenderer({antialias:true, alpha:true}); renderer.setPixelRatio(Math.min(devicePixelRatio,2)); renderer.setClearColor(0x000000,0); host.prepend(renderer.domElement);
