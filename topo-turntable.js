@@ -19,18 +19,19 @@
     "rings": 21,
     "exaggeration": 2,
     "rotateSeconds": 120,
-    "startHeading": 148,
-    "tilt": 35.3,
+    "startHeading": 241,
+    "tilt": 28.5,
     "lens": 8,
     "background": "var(--topo-bg, transparent)",
     "lineColor": "var(--topo-line, #d9c49c)",
     "lineOpacity": 0.75,
     "indexLineColor": "var(--topo-index, #f2e2bc)",
-    "solidBlock": false,
+    "solidBlock": true,
     "blockColor": "var(--topo-block, #1a2129)",
     "edgeOutline": true,
-    "cornerPosts": false,
+    "cornerPosts": true,
     "baseDepth": 0,
+    "groundOffset": -0.095,
     "label": "Gainesboro",
     "labelColor": "var(--topo-label, #ff7a5c)",
     "labelHeight": 0.45,
@@ -79,7 +80,7 @@
       return rings.filter(r=>r.length>1);
     }
     function smooth(pts,passes=2){ for(let k=0;k<passes;k++){ const closed=pts.length>3&&pts[0][0]===pts[pts.length-1][0]&&pts[0][1]===pts[pts.length-1][1]; const src=closed?pts.slice(0,-1):pts, out=[]; const n=src.length; if(n<3) return pts; if(!closed) out.push(src[0]); for(let i=0;i<(closed?n:n-1);i++){ const a=src[i], b=src[(i+1)%n]; out.push([a[0]*0.75+b[0]*0.25,a[1]*0.75+b[1]*0.25],[a[0]*0.25+b[0]*0.75,a[1]*0.25+b[1]*0.75]); } if(!closed) out.push(src[n-1]); else out.push(out[0]); pts=out; } return pts; }
-    const R=CONFIG.radiusMiles*MI, BASE=-CONFIG.baseDepth*R;
+    const R=CONFIG.radiusMiles*MI, BASE=-CONFIG.baseDepth*R, GROUND=BASE+(CONFIG.groundOffset||0)*R;
     const inside=(x,y)=>CONFIG.shape==='square'?(Math.abs(x)<=R&&Math.abs(y)<=R):(x*x+y*y<=R*R);
     function edgePoint(a,b){ let lo=a,hi=b; for(let k=0;k<24;k++){ const m=[(lo[0]+hi[0])/2,(lo[1]+hi[1])/2]; if(inside(m[0],m[1])) lo=m; else hi=m; } return lo; }
     function clipRuns(pts,emit){ let run=[],prev=null,prevIn=false; for(const p of pts){ const isIn=inside(p[0],p[1]); if(isIn){ if(!prevIn&&prev) run.push(edgePoint(p,prev)); run.push(p); } else if(prevIn){ run.push(edgePoint(prev,p)); if(run.length>1) emit(run); run=[]; } prev=p; prevIn=isIn; } if(run.length>1) emit(run); }
@@ -104,8 +105,8 @@
     // edge, posts, block
     const ep=boundary();
     if(CONFIG.edgeOutline) addLine([...ep,ep[0]], indexMat, p=>yFor(gridZ(p[0],p[1]))+2);
-    if(CONFIG.cornerPosts){ const pts=CONFIG.shape==='square'?[[-R,-R],[R,-R],[R,R],[-R,R]]:Array.from({length:8},(_,i)=>{ const a=i/8*Math.PI*2; return [Math.cos(a)*R,Math.sin(a)*R]; }); const arr=[]; for(const [x,y] of pts) arr.push(x,BASE,-y,x,yFor(gridZ(x,y)),-y); const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.Float32BufferAttribute(arr,3)); group.add(new THREE.LineSegments(g,indexMat)); }
-    addLine([...ep,ep[0]], new THREE.LineBasicMaterial({color:CONFIG.indexLineColor,transparent:true,opacity:0.5}), ()=>BASE);
+    if(CONFIG.cornerPosts){ const pts=CONFIG.shape==='square'?[[-R,-R],[R,-R],[R,R],[-R,R]]:Array.from({length:8},(_,i)=>{ const a=i/8*Math.PI*2; return [Math.cos(a)*R,Math.sin(a)*R]; }); const arr=[]; for(const [x,y] of pts) arr.push(x,GROUND,-y,x,yFor(gridZ(x,y)),-y); const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.Float32BufferAttribute(arr,3)); group.add(new THREE.LineSegments(g,indexMat)); }
+    addLine([...ep,ep[0]], new THREE.LineBasicMaterial({color:CONFIG.indexLineColor,transparent:true,opacity:0.5}), ()=>GROUND);
     if(CONFIG.solidBlock){
       const Vv=[],I=[]; const push=(x,y,z)=>{ Vv.push(x,y,z); return Vv.length/3-1; }; const top=(x,y)=>yFor(gridZ(x,y));
       if(CONFIG.shape==='square'){ const m=70,idx=[]; for(let j=0;j<=m;j++){ idx.push([]); for(let i=0;i<=m;i++){ const x=-R+2*R*i/m,y=-R+2*R*j/m; idx[j].push(push(x,top(x,y),-y)); } } for(let j=0;j<m;j++) for(let i=0;i<m;i++){ const a=idx[j][i],b=idx[j][i+1],c=idx[j+1][i+1],d=idx[j+1][i]; I.push(a,c,b,a,d,c); } }
