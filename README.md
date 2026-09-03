@@ -2,13 +2,13 @@
 
 A slowly rotating 3D contour-line block of the terrain around Gainesboro, Tennessee — real SRTM 30 m elevation, rendered with three.js. One script, no build step, embeds anywhere (Webflow, Squarespace, plain HTML).
 
-**Live demo:** open `index.html`, or after enabling GitHub Pages: `https://jpfeland.github.io/gainesboro-topo/`
+**Live demo:** open `index.html`, or after enabling GitHub Pages: `https://volentecreative.github.io/hwi-topo/`
 
 ## Embed (Webflow "Embed" element, or any HTML)
 
 ```html
 <div id="topo" style="width:100%;height:600px"></div>
-<script src="https://cdn.jsdelivr.net/gh/jpfeland/gainesboro-topo@main/topo-turntable.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/volentecreative/hwi-topo@1431f18/topo-turntable.js"></script>
 <script>
   TopoTurntable.mount('#topo', {
     rotateSeconds: 40,        // one full turn; 0 = still
@@ -21,10 +21,10 @@ Or the no-JavaScript way — just give any element `data-topo` and it mounts its
 
 ```html
 <div data-topo data-config='{"shape":"circle","rotateSeconds":30}' style="height:500px"></div>
-<script src="https://cdn.jsdelivr.net/gh/jpfeland/gainesboro-topo@main/topo-turntable.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/volentecreative/hwi-topo@1431f18/topo-turntable.js"></script>
 ```
 
-> jsDelivr caches `@main` for up to 24 h. For an instant, permanent version pin a commit or tag instead, e.g. `@v1.0.0`.
+> The URL above is pinned to commit `1431f18`, so it is permanent and served instantly. Swap the hash for a newer commit to pick up changes; `@main` also works but jsDelivr caches it for up to 24 h.
 
 ## Options
 
