@@ -4,7 +4,7 @@
  *
  * Usage:
  *   <div id="topo" style="height:600px"></div>
- *   <script src="https://cdn.jsdelivr.net/gh/volentecreative/hwi-topo@1058632/topo-turntable.js"></script>
+ *   <script src="https://cdn.jsdelivr.net/gh/volentecreative/hwi-topo@v1.1.0/topo-turntable.js"></script>
  *   <script>TopoTurntable.mount('#topo', { rotateSeconds: 40, background: 'transparent' });</script>
  *
  * Or just add data-topo to an element (optional data-config='{"shape":"circle"}') and it mounts itself.
@@ -39,6 +39,7 @@
     "labelColor": "var(--topo-label, #ff7a5c)",
     "labelHeight": 0.45,
     "labelFont": "500 15px/1 \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+    "labelClass": "",
     "dragToOrbit": false
   };
 
@@ -46,7 +47,7 @@
   const THREE_URL = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
   let threeReady = null;
   function loadThree(){ if(global.THREE) return Promise.resolve(); if(threeReady) return threeReady; threeReady = new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=THREE_URL; s.onload=res; s.onerror=()=>rej(new Error('three.js failed to load')); document.head.appendChild(s); }); return threeReady; }
-  function injectCSS(){ if(document.getElementById('topo-turntable-css')) return; const st=document.createElement('style'); st.id='topo-turntable-css'; st.textContent='.topo-turntable{position:relative}.topo-turntable canvas{position:absolute;top:0;left:0;display:block;width:100%;height:100%}.topo-turntable .topo-label{position:absolute;transform:translate(-50%,-100%);padding:0 0 6px 0;letter-spacing:.01em;white-space:nowrap;pointer-events:none;user-select:none}.topo-turntable .topo-label::before{content:"";position:absolute;left:50%;bottom:0;width:6px;height:6px;transform:translate(-50%,50%);background:currentColor}'; document.head.appendChild(st); }
+  function injectCSS(){ if(document.getElementById('topo-turntable-css')) return; const st=document.createElement('style'); st.id='topo-turntable-css'; st.textContent='.topo-turntable{position:relative}.topo-turntable canvas{position:absolute;top:0;left:0;display:block;width:100%;height:100%}.topo-turntable .topo-label{position:absolute;transform:translate(-50%,-100%);white-space:nowrap;pointer-events:none;user-select:none}:where(.topo-turntable .topo-label){padding:0 0 6px 0;letter-spacing:.01em}.topo-turntable .topo-label::before{content:"";position:absolute;left:50%;bottom:0;width:6px;height:6px;transform:translate(-50%,50%);background:currentColor}'; document.head.appendChild(st); }
 
   const COLOR_KEYS = ['background','lineColor','indexLineColor','blockColor','labelColor'];
   function resolveColor(host, v){
@@ -93,7 +94,8 @@
     function boundary(){ const ep=[]; if(CONFIG.shape==='square'){ const n=90,c=[[-R,-R],[R,-R],[R,R],[-R,R]]; for(let s=0;s<4;s++) for(let i=0;i<n;i++){ const t=i/n,a=c[s],b=c[(s+1)%4]; ep.push([a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t]); } } else for(let i=0;i<360;i++){ const a=i/360*Math.PI*2; ep.push([Math.cos(a)*R,Math.sin(a)*R]); } return ep; }
     
     // ---- scene
-    const labelEl=document.createElement('div'); labelEl.className='topo-label'; host.appendChild(labelEl);
+    const labelEl=document.createElement('div'); labelEl.className='topo-label'+(CONFIG.labelClass?' '+CONFIG.labelClass:''); host.appendChild(labelEl);
+    const labelStyled=!!CONFIG.labelClass;   // classes own the label's type and colour: no inline font/colour to fight them, and the pin takes its colour from whatever they compute to
     host.style.background=CONFIG.background; if(getComputedStyle(host).position==='static') host.style.position='relative'; host.style.overflow='hidden';
     // The canvas is absolutely positioned (see injectCSS), so it never contributes to the host's own size:
     // without that, a host whose width or height comes from its content is sized by the canvas, which is in turn
@@ -151,7 +153,7 @@
     }
     // label pin
     let pinTop=0;
-    if(CONFIG.label){ pinTop=yFor(gridZ(0,0))+R*CONFIG.labelHeight; const g=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,yFor(gridZ(0,0)),0),new THREE.Vector3(0,pinTop,0)]); pinMat=new THREE.LineBasicMaterial({color:CONFIG.labelColor}); group.add(new THREE.Line(g,pinMat)); labelEl.textContent=CONFIG.label; labelEl.style.color=CONFIG.labelColor; } else labelEl.remove();
+    if(CONFIG.label){ pinTop=yFor(gridZ(0,0))+R*CONFIG.labelHeight; const g=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,yFor(gridZ(0,0)),0),new THREE.Vector3(0,pinTop,0)]); pinMat=new THREE.LineBasicMaterial({color:CONFIG.labelColor}); group.add(new THREE.Line(g,pinMat)); labelEl.textContent=CONFIG.label; if(!labelStyled) labelEl.style.color=CONFIG.labelColor; } else labelEl.remove();
     
     // ---- camera + loop
     const pol=(90-CONFIG.tilt)*Math.PI/180, pivot=new THREE.Vector3(0,(BASE+maxY)/2,0);
@@ -186,13 +188,16 @@
     let visible=true;
     const io=new IntersectionObserver(en=>visible=en[0].isIntersecting); io.observe(host);
     // follow the page's theme: re-read any var(...) colours when they change (Webflow light/dark toggles, data-theme, prefers-color-scheme)
-    let lastColors=JSON.stringify(COLOR_KEYS.map(k=>CONFIG[k]));
+    let lastColors='';
     function applyColors(){
       const next={}; for(const k of COLOR_KEYS) next[k]=resolveColor(host, RAWCOLORS[k]);
-      const sig=JSON.stringify(COLOR_KEYS.map(k=>next[k])); if(sig===lastColors) return; lastColors=sig; Object.assign(CONFIG,next);
+      const pin = labelStyled ? getComputedStyle(labelEl).color : next.labelColor;   // follow the class, so a theme switch moves the pin with the text
+      const sig=JSON.stringify([...COLOR_KEYS.map(k=>next[k]), pin]); if(sig===lastColors) return; lastColors=sig; Object.assign(CONFIG,next);
       host.style.background=CONFIG.background; lineMat.color.set(CONFIG.lineColor); indexMat.color.set(CONFIG.indexLineColor);
-      if(blockMat) blockMat.color.set(CONFIG.blockColor); if(pinMat) pinMat.color.set(CONFIG.labelColor); labelEl.style.color=CONFIG.labelColor;
+      if(blockMat) blockMat.color.set(CONFIG.blockColor); if(pinMat) pinMat.color.set(pin);
+      if(!labelStyled) labelEl.style.color=CONFIG.labelColor;
     }
+    applyColors();
     const themeWatch=setInterval(()=>{ if(alive) applyColors(); else clearInterval(themeWatch); }, 400);
     if(global.MutationObserver){ const mo=new MutationObserver(applyColors); for(const el of [document.documentElement, document.body]) if(el) mo.observe(el,{attributes:true,attributeFilter:['class','style','data-theme','data-wf-theme']}); }
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyColors);
@@ -214,9 +219,9 @@
     if(!host) return Promise.reject(new Error('TopoTurntable: target not found'));
     const CONFIG = Object.assign({}, DEFAULTS, config||{});
     injectCSS();
-    return loadThree().then(()=>{ const inst = build(host, CONFIG); host.querySelector('.topo-label')?.style.setProperty('font', CONFIG.labelFont); return inst; });
+    return loadThree().then(()=>{ const inst = build(host, CONFIG); if(!CONFIG.labelClass) host.querySelector('.topo-label')?.style.setProperty('font', CONFIG.labelFont); return inst; });
   }
   function autoMount(){ document.querySelectorAll('[data-topo]').forEach(el=>{ if(el.dataset.topoMounted) return; el.dataset.topoMounted='1'; let cfg={}; try{ cfg=JSON.parse(el.dataset.config||'{}'); }catch(e){} mount(el,cfg); }); }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', autoMount); else autoMount();
-  global.TopoTurntable = { mount, defaults: DEFAULTS, version: '1.0.0' };
+  global.TopoTurntable = { mount, defaults: DEFAULTS, version: '1.1.0' };
 })(window);
