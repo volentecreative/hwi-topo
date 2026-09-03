@@ -11,7 +11,7 @@ falls back to the value shown here.
 
 ```html
 <div id="topo" style="width:100%;height:600px"></div>
-<script src="https://cdn.jsdelivr.net/gh/volentecreative/hwi-topo@v1.1.0/topo-turntable.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/volentecreative/hwi-topo@0288018/topo-turntable.js"></script>
 <script>
   TopoTurntable.mount('#topo', {
 
@@ -63,10 +63,10 @@ Or the no-JavaScript way — give any element `data-topo` and it mounts itself:
 
 ```html
 <div data-topo data-config='{"shape":"circle","rotateSeconds":30}' style="height:500px"></div>
-<script src="https://cdn.jsdelivr.net/gh/volentecreative/hwi-topo@v1.1.0/topo-turntable.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/volentecreative/hwi-topo@0288018/topo-turntable.js"></script>
 ```
 
-> The URL above is pinned to the `v1.1.0` tag, so it is permanent and served instantly. Bump the tag (or use a commit hash) to pick up changes; `@main` also works but jsDelivr caches it for up to 24 h.
+> The URL above is pinned to commit `0288018`, so it is permanent and served instantly. Swap the hash for a newer commit to pick up changes; `@main` also works but jsDelivr caches it for up to 24 h.
 
 ## Styling the label with your own classes
 
