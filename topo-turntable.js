@@ -19,7 +19,7 @@
     "rings": 21,
     "exaggeration": 2,
     "rotateSeconds": 120,
-    "startHeading": 95.4,
+    "startHeading": 140.5,
     "tilt": 31,
     "lens": 8,
     "background": "var(--topo-bg, transparent)",
@@ -129,13 +129,24 @@
     if(CONFIG.label){ pinTop=yFor(gridZ(0,0))+R*CONFIG.labelHeight; const g=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,yFor(gridZ(0,0)),0),new THREE.Vector3(0,pinTop,0)]); pinMat=new THREE.LineBasicMaterial({color:CONFIG.labelColor}); group.add(new THREE.Line(g,pinMat)); labelEl.textContent=CONFIG.label; labelEl.style.color=CONFIG.labelColor; } else labelEl.remove();
     
     // ---- camera + loop
-    const pol=(90-CONFIG.tilt)*Math.PI/180, pivot=new THREE.Vector3(0,(BASE+Math.max(maxY,pinTop*0.7))/2,0);
-    let az=-(CONFIG.startHeading||0)*Math.PI/180 - 0.0, dragging=null, lastPointer=0;
-    function fit(){ const w=host.clientWidth,h=host.clientHeight; renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix();
-      // distance so the block's bounding sphere fits the shorter side
-      const rad=R*(CONFIG.fitMargin||1.1); const f=Math.tan(camera.fov*Math.PI/360); return rad/(f*Math.min(1,camera.aspect)); }
-    let dist=fit(); addEventListener('resize',()=>{ dist=fit(); });
-    if(global.ResizeObserver){ const ro=new ResizeObserver(()=>{ dist=fit(); }); ro.observe(host); }
+    const pol=(90-CONFIG.tilt)*Math.PI/180, pivot=new THREE.Vector3(0,(BASE+maxY)/2,0);
+    let az=-(CONFIG.startHeading||0)*Math.PI/180, dragging=null, lastPointer=0, dist=R*3;
+    function placeCam(a){ camera.position.set(pivot.x+dist*Math.sin(pol)*Math.sin(a), pivot.y+dist*Math.cos(pol), pivot.z+dist*Math.sin(pol)*Math.cos(a)); camera.lookAt(pivot); camera.updateMatrixWorld(); }
+    // Fit by measuring what the camera actually sees: project the block's corners (and the pin top) over a full turn,
+    // then choose the distance so the widest projected extent fills the container, and shift the pivot so it sits centred.
+    const fitPts=[]; for(const sx of [-1,1]) for(const sz of [-1,1]){ fitPts.push(new THREE.Vector3(sx*R,BOTTOM,sz*R), new THREE.Vector3(sx*R,maxY,sz*R)); } if(pinTop) fitPts.push(new THREE.Vector3(0,pinTop,0));
+    function fit(){
+      const w=host.clientWidth,h=host.clientHeight; if(!w||!h) return;
+      renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix();
+      const margin=1/(CONFIG.fitMargin||1.1), saveY=pivot.y; pivot.y=(BASE+maxY)/2;
+      const measure=()=>{ let minX=1e9,maxX=-1e9,minY=1e9,maxY2=-1e9; for(let k=0;k<24;k++){ placeCam(k/24*Math.PI*2); for(const p of fitPts){ const q=p.clone().project(camera); if(q.x<minX)minX=q.x; if(q.x>maxX)maxX=q.x; if(q.y<minY)minY=q.y; if(q.y>maxY2)maxY2=q.y; } } return {minX,maxX,minY,maxY:maxY2}; };
+      for(let i=0;i<4;i++){ const b=measure(); const ext=Math.max((b.maxX-b.minX)/2,(b.maxY-b.minY)/2)/margin; if(ext>0) dist*=ext; }
+      const b=measure(); const cy=(b.minY+b.maxY)/2;           // vertical centring: nudge the pivot so the projected box is centred
+      pivot.y += cy*dist*Math.tan(camera.fov*Math.PI/360)*0.9;
+      placeCam(az);
+    }
+    fit(); addEventListener('resize',fit);
+    if(global.ResizeObserver){ const ro=new ResizeObserver(()=>fit()); ro.observe(host); }
     if(!CONFIG.dragToOrbit) renderer.domElement.style.pointerEvents='none';
     if(CONFIG.dragToOrbit){ const el=renderer.domElement; el.style.cursor='grab'; el.addEventListener('pointerdown',e=>{ dragging={x:e.clientX}; el.setPointerCapture(e.pointerId); }); el.addEventListener('pointermove',e=>{ if(dragging){ az-=(e.clientX-dragging.x)*0.006; dragging.x=e.clientX; lastPointer=performance.now(); } }); el.addEventListener('pointerup',()=>dragging=null); }
     const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -155,7 +166,7 @@
     function frame(now){
       if(!alive) return; requestAnimationFrame(frame); const dt=(now-last)/1000; last=now; if(!visible) return;
       if(CONFIG.rotateSeconds>0 && !reduced && !dragging && now-lastPointer>1500) az+=dt*Math.PI*2/CONFIG.rotateSeconds;
-      camera.position.set(pivot.x+dist*Math.sin(pol)*Math.sin(az), pivot.y+dist*Math.cos(pol), pivot.z+dist*Math.sin(pol)*Math.cos(az)); camera.lookAt(pivot);
+      placeCam(az);
       renderer.render(scene,camera);
       if(CONFIG.label){ const p=new THREE.Vector3(0,pinTop,0).project(camera); labelEl.style.left=((p.x+1)/2*host.clientWidth)+'px'; labelEl.style.top=((1-p.y)/2*host.clientHeight)+'px'; }
     }
