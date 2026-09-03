@@ -19,7 +19,7 @@
     "rings": 21,
     "exaggeration": 2,
     "rotateSeconds": 120,
-    "startHeading": 111.9,
+    "startHeading": 206.7,
     "tilt": 31,
     "lens": 8,
     "background": "var(--topo-bg, transparent)",
@@ -32,6 +32,7 @@
     "cornerPosts": true,
     "baseDepth": 0,
     "groundOffset": -0.095,
+    "blockShading": false,
     "label": "Gainesboro",
     "labelColor": "var(--topo-label, #ff7a5c)",
     "labelHeight": 0.45,
@@ -115,7 +116,8 @@
       else { const nr=45,na=180,centre=push(0,top(0,0),0),rings=[]; for(let r=1;r<=nr;r++){ const rad=R*r/nr,row=[]; for(let k=0;k<na;k++){ const a=k/na*Math.PI*2,x=Math.cos(a)*rad,y=Math.sin(a)*rad; row.push(push(x,top(x,y),-y)); } rings.push(row); } for(let k=0;k<na;k++){ const k2=(k+1)%na; I.push(centre,rings[0][k2],rings[0][k]); } for(let r=0;r<nr-1;r++) for(let k=0;k<na;k++){ const k2=(k+1)%na,a=rings[r][k],b=rings[r][k2],c=rings[r+1][k2],d=rings[r+1][k]; I.push(a,c,b,a,d,c); } }
       const n=ep.length,topI=[],botI=[]; for(const [x,y] of ep){ topI.push(push(x,top(x,y),-y)); botI.push(push(x,BOTTOM,-y)); } for(let i=0;i<n;i++){ const j=(i+1)%n; I.push(topI[i],topI[j],botI[j],topI[i],botI[j],botI[i]); } const bc=push(0,BOTTOM,0); for(let i=0;i<n;i++){ const j=(i+1)%n; I.push(bc,botI[i],botI[j]); }
       const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.Float32BufferAttribute(Vv,3)); g.setIndex(I); g.computeVertexNormals();
-      group.add(new THREE.Mesh(g,new THREE.MeshLambertMaterial({color:CONFIG.blockColor,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:2,polygonOffsetUnits:2})));
+      const blockMat = CONFIG.blockShading ? new THREE.MeshLambertMaterial({color:CONFIG.blockColor,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:2,polygonOffsetUnits:2}) : new THREE.MeshBasicMaterial({color:CONFIG.blockColor,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:2,polygonOffsetUnits:2});   // flat: top and walls are exactly the block colour
+  group.add(new THREE.Mesh(g,blockMat));
     }
     // label pin
     let pinTop=0;
