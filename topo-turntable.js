@@ -19,8 +19,8 @@
     "rings": 21,
     "exaggeration": 2,
     "rotateSeconds": 120,
-    "startHeading": 241,
-    "tilt": 28.5,
+    "startHeading": 111.9,
+    "tilt": 31,
     "lens": 8,
     "background": "var(--topo-bg, transparent)",
     "lineColor": "var(--topo-line, #d9c49c)",
@@ -50,8 +50,10 @@
     if(typeof v!=='string') return v;
     const m = v.match(/^var\(\s*(--[\w-]+)\s*(?:,\s*(.+?)\s*)?\)$/);
     if(!m) return v;
-    const got = getComputedStyle(host).getPropertyValue(m[1]).trim();
-    return got || (m[2] ? resolveColor(host, m[2]) : 'transparent');
+    let got = getComputedStyle(host).getPropertyValue(m[1]).trim();
+    // unresolved / malformed values (a nested var() that never resolved, an unclosed paren, an unknown colour) fall back to the default
+    const ok = got && !/var\(/.test(got) && (got==='transparent' || (global.CSS && CSS.supports && CSS.supports('color', got)));
+    return ok ? got : (m[2] ? resolveColor(host, m[2]) : 'transparent');
   }
   function build(host, CONFIG){
     const THREE = global.THREE;
@@ -80,7 +82,7 @@
       return rings.filter(r=>r.length>1);
     }
     function smooth(pts,passes=2){ for(let k=0;k<passes;k++){ const closed=pts.length>3&&pts[0][0]===pts[pts.length-1][0]&&pts[0][1]===pts[pts.length-1][1]; const src=closed?pts.slice(0,-1):pts, out=[]; const n=src.length; if(n<3) return pts; if(!closed) out.push(src[0]); for(let i=0;i<(closed?n:n-1);i++){ const a=src[i], b=src[(i+1)%n]; out.push([a[0]*0.75+b[0]*0.25,a[1]*0.75+b[1]*0.25],[a[0]*0.25+b[0]*0.75,a[1]*0.25+b[1]*0.75]); } if(!closed) out.push(src[n-1]); else out.push(out[0]); pts=out; } return pts; }
-    const R=CONFIG.radiusMiles*MI, BASE=-CONFIG.baseDepth*R, GROUND=BASE+(CONFIG.groundOffset||0)*R;
+    const R=CONFIG.radiusMiles*MI, BASE=-CONFIG.baseDepth*R, GROUND=BASE+(CONFIG.groundOffset||0)*R, BOTTOM=Math.min(BASE,GROUND);
     const inside=(x,y)=>CONFIG.shape==='square'?(Math.abs(x)<=R&&Math.abs(y)<=R):(x*x+y*y<=R*R);
     function edgePoint(a,b){ let lo=a,hi=b; for(let k=0;k<24;k++){ const m=[(lo[0]+hi[0])/2,(lo[1]+hi[1])/2]; if(inside(m[0],m[1])) lo=m; else hi=m; } return lo; }
     function clipRuns(pts,emit){ let run=[],prev=null,prevIn=false; for(const p of pts){ const isIn=inside(p[0],p[1]); if(isIn){ if(!prevIn&&prev) run.push(edgePoint(p,prev)); run.push(p); } else if(prevIn){ run.push(edgePoint(prev,p)); if(run.length>1) emit(run); run=[]; } prev=p; prevIn=isIn; } if(run.length>1) emit(run); }
@@ -111,7 +113,7 @@
       const Vv=[],I=[]; const push=(x,y,z)=>{ Vv.push(x,y,z); return Vv.length/3-1; }; const top=(x,y)=>yFor(gridZ(x,y));
       if(CONFIG.shape==='square'){ const m=70,idx=[]; for(let j=0;j<=m;j++){ idx.push([]); for(let i=0;i<=m;i++){ const x=-R+2*R*i/m,y=-R+2*R*j/m; idx[j].push(push(x,top(x,y),-y)); } } for(let j=0;j<m;j++) for(let i=0;i<m;i++){ const a=idx[j][i],b=idx[j][i+1],c=idx[j+1][i+1],d=idx[j+1][i]; I.push(a,c,b,a,d,c); } }
       else { const nr=45,na=180,centre=push(0,top(0,0),0),rings=[]; for(let r=1;r<=nr;r++){ const rad=R*r/nr,row=[]; for(let k=0;k<na;k++){ const a=k/na*Math.PI*2,x=Math.cos(a)*rad,y=Math.sin(a)*rad; row.push(push(x,top(x,y),-y)); } rings.push(row); } for(let k=0;k<na;k++){ const k2=(k+1)%na; I.push(centre,rings[0][k2],rings[0][k]); } for(let r=0;r<nr-1;r++) for(let k=0;k<na;k++){ const k2=(k+1)%na,a=rings[r][k],b=rings[r][k2],c=rings[r+1][k2],d=rings[r+1][k]; I.push(a,c,b,a,d,c); } }
-      const n=ep.length,topI=[],botI=[]; for(const [x,y] of ep){ topI.push(push(x,top(x,y),-y)); botI.push(push(x,BASE,-y)); } for(let i=0;i<n;i++){ const j=(i+1)%n; I.push(topI[i],topI[j],botI[j],topI[i],botI[j],botI[i]); } const bc=push(0,BASE,0); for(let i=0;i<n;i++){ const j=(i+1)%n; I.push(bc,botI[i],botI[j]); }
+      const n=ep.length,topI=[],botI=[]; for(const [x,y] of ep){ topI.push(push(x,top(x,y),-y)); botI.push(push(x,BOTTOM,-y)); } for(let i=0;i<n;i++){ const j=(i+1)%n; I.push(topI[i],topI[j],botI[j],topI[i],botI[j],botI[i]); } const bc=push(0,BOTTOM,0); for(let i=0;i<n;i++){ const j=(i+1)%n; I.push(bc,botI[i],botI[j]); }
       const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.Float32BufferAttribute(Vv,3)); g.setIndex(I); g.computeVertexNormals();
       group.add(new THREE.Mesh(g,new THREE.MeshLambertMaterial({color:CONFIG.blockColor,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:2,polygonOffsetUnits:2})));
     }
