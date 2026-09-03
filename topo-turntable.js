@@ -19,7 +19,7 @@
     "rings": 21,
     "exaggeration": 2,
     "rotateSeconds": 120,
-    "startHeading": 206.7,
+    "startHeading": 95.4,
     "tilt": 31,
     "lens": 8,
     "background": "var(--topo-bg, transparent)",
@@ -33,6 +33,8 @@
     "baseDepth": 0,
     "groundOffset": -0.095,
     "blockShading": false,
+    "fitMargin": 1.1,
+    "aspectRatio": "16 / 10",
     "label": "Gainesboro",
     "labelColor": "var(--topo-label, #ff7a5c)",
     "labelHeight": 0.45,
@@ -58,7 +60,7 @@
   }
   function build(host, CONFIG){
     const THREE = global.THREE;
-    for(const k of COLOR_KEYS) CONFIG[k] = resolveColor(host, CONFIG[k]);
+    const RAWCOLORS={}; for(const k of COLOR_KEYS){ RAWCOLORS[k]=CONFIG[k]; CONFIG[k] = resolveColor(host, CONFIG[k]); }
     host.classList.add('topo-turntable');
 
     const FT=0.3048, MI=1609.344, N=GRID.n, EXT=GRID.extent_m, CELL=2*EXT/(N-1);
@@ -93,11 +95,14 @@
     // ---- scene
     const labelEl=document.createElement('div'); labelEl.className='topo-label'; host.appendChild(labelEl);
     host.style.background=CONFIG.background; if(getComputedStyle(host).position==='static') host.style.position='relative'; host.style.overflow='hidden';
+    if(!host.style.width && host.clientWidth===0) host.style.width='100%';
+    if(host.clientHeight<10){ host.style.aspectRatio = CONFIG.aspectRatio || '16 / 10'; }   // no height set: size by aspect ratio instead of collapsing
     const renderer=new THREE.WebGLRenderer({antialias:true, alpha:true}); renderer.setPixelRatio(Math.min(devicePixelRatio,2)); renderer.setClearColor(0x000000,0); host.prepend(renderer.domElement);
     const scene=new THREE.Scene(); const camera=new THREE.PerspectiveCamera(CONFIG.lens,1,10,200000);
     scene.add(new THREE.HemisphereLight(0xffffff,0x444444,0.9)); const sun=new THREE.DirectionalLight(0xffffff,0.35); sun.position.set(1,2,1); scene.add(sun);
     const group=new THREE.Group(); scene.add(group);
     const lineMat=new THREE.LineBasicMaterial({color:CONFIG.lineColor,transparent:true,opacity:CONFIG.lineOpacity??0.75}), indexMat=new THREE.LineBasicMaterial({color:CONFIG.indexLineColor});
+    let blockMat=null, pinMat=null;
     const addLine=(pts,mat,yOf)=>{ const pos=new Float32Array(pts.length*3); pts.forEach((p,i)=>{ pos[i*3]=p[0]; pos[i*3+1]=yOf(p); pos[i*3+2]=-p[1]; }); const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(pos,3)); group.add(new THREE.Line(g,mat)); };
     
     // contours
@@ -109,31 +114,43 @@
     const ep=boundary();
     if(CONFIG.edgeOutline) addLine([...ep,ep[0]], indexMat, p=>yFor(gridZ(p[0],p[1]))+2);
     if(CONFIG.cornerPosts){ const pts=CONFIG.shape==='square'?[[-R,-R],[R,-R],[R,R],[-R,R]]:Array.from({length:8},(_,i)=>{ const a=i/8*Math.PI*2; return [Math.cos(a)*R,Math.sin(a)*R]; }); const arr=[]; for(const [x,y] of pts) arr.push(x,GROUND,-y,x,yFor(gridZ(x,y)),-y); const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.Float32BufferAttribute(arr,3)); group.add(new THREE.LineSegments(g,indexMat)); }
-    addLine([...ep,ep[0]], new THREE.LineBasicMaterial({color:CONFIG.indexLineColor,transparent:true,opacity:0.5}), ()=>GROUND);
+    addLine([...ep,ep[0]], lineMat, ()=>GROUND);   // ground boundary: same colour/opacity as the contour lines
     if(CONFIG.solidBlock){
       const Vv=[],I=[]; const push=(x,y,z)=>{ Vv.push(x,y,z); return Vv.length/3-1; }; const top=(x,y)=>yFor(gridZ(x,y));
       if(CONFIG.shape==='square'){ const m=70,idx=[]; for(let j=0;j<=m;j++){ idx.push([]); for(let i=0;i<=m;i++){ const x=-R+2*R*i/m,y=-R+2*R*j/m; idx[j].push(push(x,top(x,y),-y)); } } for(let j=0;j<m;j++) for(let i=0;i<m;i++){ const a=idx[j][i],b=idx[j][i+1],c=idx[j+1][i+1],d=idx[j+1][i]; I.push(a,c,b,a,d,c); } }
       else { const nr=45,na=180,centre=push(0,top(0,0),0),rings=[]; for(let r=1;r<=nr;r++){ const rad=R*r/nr,row=[]; for(let k=0;k<na;k++){ const a=k/na*Math.PI*2,x=Math.cos(a)*rad,y=Math.sin(a)*rad; row.push(push(x,top(x,y),-y)); } rings.push(row); } for(let k=0;k<na;k++){ const k2=(k+1)%na; I.push(centre,rings[0][k2],rings[0][k]); } for(let r=0;r<nr-1;r++) for(let k=0;k<na;k++){ const k2=(k+1)%na,a=rings[r][k],b=rings[r][k2],c=rings[r+1][k2],d=rings[r+1][k]; I.push(a,c,b,a,d,c); } }
       const n=ep.length,topI=[],botI=[]; for(const [x,y] of ep){ topI.push(push(x,top(x,y),-y)); botI.push(push(x,BOTTOM,-y)); } for(let i=0;i<n;i++){ const j=(i+1)%n; I.push(topI[i],topI[j],botI[j],topI[i],botI[j],botI[i]); } const bc=push(0,BOTTOM,0); for(let i=0;i<n;i++){ const j=(i+1)%n; I.push(bc,botI[i],botI[j]); }
       const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.Float32BufferAttribute(Vv,3)); g.setIndex(I); g.computeVertexNormals();
-      const blockMat = CONFIG.blockShading ? new THREE.MeshLambertMaterial({color:CONFIG.blockColor,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:2,polygonOffsetUnits:2}) : new THREE.MeshBasicMaterial({color:CONFIG.blockColor,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:2,polygonOffsetUnits:2});   // flat: top and walls are exactly the block colour
+      blockMat = CONFIG.blockShading ? new THREE.MeshLambertMaterial({color:CONFIG.blockColor,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:2,polygonOffsetUnits:2}) : new THREE.MeshBasicMaterial({color:CONFIG.blockColor,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:2,polygonOffsetUnits:2});   // flat: top and walls are exactly the block colour
   group.add(new THREE.Mesh(g,blockMat));
     }
     // label pin
     let pinTop=0;
-    if(CONFIG.label){ pinTop=yFor(gridZ(0,0))+R*CONFIG.labelHeight; const g=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,yFor(gridZ(0,0)),0),new THREE.Vector3(0,pinTop,0)]); group.add(new THREE.Line(g,new THREE.LineBasicMaterial({color:CONFIG.labelColor}))); labelEl.textContent=CONFIG.label; labelEl.style.color=CONFIG.labelColor; } else labelEl.remove();
+    if(CONFIG.label){ pinTop=yFor(gridZ(0,0))+R*CONFIG.labelHeight; const g=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,yFor(gridZ(0,0)),0),new THREE.Vector3(0,pinTop,0)]); pinMat=new THREE.LineBasicMaterial({color:CONFIG.labelColor}); group.add(new THREE.Line(g,pinMat)); labelEl.textContent=CONFIG.label; labelEl.style.color=CONFIG.labelColor; } else labelEl.remove();
     
     // ---- camera + loop
     const pol=(90-CONFIG.tilt)*Math.PI/180, pivot=new THREE.Vector3(0,(BASE+Math.max(maxY,pinTop*0.7))/2,0);
     let az=-(CONFIG.startHeading||0)*Math.PI/180 - 0.0, dragging=null, lastPointer=0;
     function fit(){ const w=host.clientWidth,h=host.clientHeight; renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix();
       // distance so the block's bounding sphere fits the shorter side
-      const rad=R*1.25; const f=Math.tan(camera.fov*Math.PI/360); return rad/(f*Math.min(1,camera.aspect)); }
+      const rad=R*(CONFIG.fitMargin||1.1); const f=Math.tan(camera.fov*Math.PI/360); return rad/(f*Math.min(1,camera.aspect)); }
     let dist=fit(); addEventListener('resize',()=>{ dist=fit(); });
+    if(global.ResizeObserver){ const ro=new ResizeObserver(()=>{ dist=fit(); }); ro.observe(host); }
     if(!CONFIG.dragToOrbit) renderer.domElement.style.pointerEvents='none';
     if(CONFIG.dragToOrbit){ const el=renderer.domElement; el.style.cursor='grab'; el.addEventListener('pointerdown',e=>{ dragging={x:e.clientX}; el.setPointerCapture(e.pointerId); }); el.addEventListener('pointermove',e=>{ if(dragging){ az-=(e.clientX-dragging.x)*0.006; dragging.x=e.clientX; lastPointer=performance.now(); } }); el.addEventListener('pointerup',()=>dragging=null); }
     const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
     let visible=true, alive=true; const io=new IntersectionObserver(en=>visible=en[0].isIntersecting); io.observe(host);
+    // follow the page's theme: re-read any var(...) colours when they change (Webflow light/dark toggles, data-theme, prefers-color-scheme)
+    let lastColors=JSON.stringify(COLOR_KEYS.map(k=>CONFIG[k]));
+    function applyColors(){
+      const next={}; for(const k of COLOR_KEYS) next[k]=resolveColor(host, RAWCOLORS[k]);
+      const sig=JSON.stringify(COLOR_KEYS.map(k=>next[k])); if(sig===lastColors) return; lastColors=sig; Object.assign(CONFIG,next);
+      host.style.background=CONFIG.background; lineMat.color.set(CONFIG.lineColor); indexMat.color.set(CONFIG.indexLineColor);
+      if(blockMat) blockMat.color.set(CONFIG.blockColor); if(pinMat) pinMat.color.set(CONFIG.labelColor); labelEl.style.color=CONFIG.labelColor;
+    }
+    const themeWatch=setInterval(()=>{ if(alive) applyColors(); else clearInterval(themeWatch); }, 400);
+    if(global.MutationObserver){ const mo=new MutationObserver(applyColors); for(const el of [document.documentElement, document.body]) if(el) mo.observe(el,{attributes:true,attributeFilter:['class','style','data-theme','data-wf-theme']}); }
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyColors);
     let last=performance.now();
     function frame(now){
       if(!alive) return; requestAnimationFrame(frame); const dt=(now-last)/1000; last=now; if(!visible) return;
