@@ -29,6 +29,10 @@ falls back to the value shown here.
     fitMargin:     1.1,         // breathing room around the block; 1 = edge to edge, higher = more padding
     dragToOrbit:   false,       // let visitors drag to spin it; auto-rotation resumes afterwards
 
+    // --- highways & waterways (OpenStreetMap, draped on the terrain) ------
+    roads: false,               // TN 53 / 56 / 85 / 135 / 262
+    water: false,               // the Cumberland, Roaring River and the town streams
+
     // --- the block -------------------------------------------------------
     solidBlock:   true,         // filled slab under the contour lines
     blockShading: false,        // true = lit surface, false = flat fill in blockColor
@@ -45,6 +49,8 @@ falls back to the value shown here.
     lineOpacity:    0.75,
     indexLineColor: 'var(--topo-index, #f2e2bc)',   // every 100 ft
     blockColor:     'var(--topo-block, #1a2129)',
+    roadColor:      'var(--topo-road, #8f948c)',
+    waterColor:     'var(--topo-water, #5fa3a8)',
 
     // --- the pin ---------------------------------------------------------
     label:       'Gainesboro',  // '' hides the pin entirely
@@ -67,6 +73,17 @@ Or the no-JavaScript way — give any element `data-topo` and it mounts itself:
 ```
 
 > The URL above is pinned to commit `0288018`, so it is permanent and served instantly. Swap the hash for a newer commit to pick up changes; `@main` also works but jsDelivr caches it for up to 24 h.
+
+## Highways and waterways
+
+`roads: true` and `water: true` add the state highways (TN 53, 56, 85, 135, 262) and the rivers —
+the Cumberland, the Roaring River, and the two town streams — draped on the terrain. They are
+clipped to the block by the same code that clips the contours, and lifted 3 m off the surface so
+they don't z-fight with the block's top face. Both colours go through the same `var()` resolution
+as everything else, so `--topo-road` / `--topo-water` work and they follow theme changes.
+
+Coverage is complete out to about `radiusMiles: 3.4`; past that a few outlying ways are missing.
+The data is baked in (~44 KB of the file), projected to local metres around 36.35972, -85.65472.
 
 ## Styling the label with your own classes
 
@@ -101,6 +118,6 @@ follow the layout as closely.
 
 ## Notes
 
-- ~170 KB script (the elevation grid is baked in). three.js r128 loads from cdnjs automatically if the page doesn't already have `THREE`.
+- ~224 KB script (the elevation grid and the OSM road/river geometry are baked in). three.js r128 loads from cdnjs automatically if the page doesn't already have `THREE`.
 - Pauses rendering when scrolled out of view; honours `prefers-reduced-motion` (stays still).
 - Data: NASA SRTM 30 m via OpenTopoData, 37×37 samples over a 12-mile square (6 miles in every direction) centred on 36.35972, -85.65472, spline-interpolated and lightly smoothed. It's the true large-scale shape of the terrain, not survey-grade detail.
