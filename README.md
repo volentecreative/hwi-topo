@@ -23,13 +23,24 @@ to the value shown here.
     localInterval:  12.5,       // finest contour interval, in metres, over the county-scale grid
     regionInterval: 25,         // finest interval over the 1 km grid (600 x 500 km)
     contInterval:   100,        // finest interval over the 5 km grid (5,800 x 3,300 km)
-    contourSpacing: 16,         // a contour set resolves in once its lines would fall this many CSS px apart (see below)
     county:         true,       // draw the county line, draped on the relief
+
+    // --- how the topo resolves (see "How the world is built") --------------
+    revealStart:      550,      // view width, km, where the topo first begins to appear
+    revealFull:       120,      // view width, km, where it reaches full opacity
+    revealSoftness:   1,        // >1 = slower start to that reveal, <1 = quicker
+    contourSpacing:   16,       // a contour set resolves in once its lines would fall this many CSS px apart
+    spacingTolerance: 0.5,      // 0 = every line of a set fades together; 1 = each line by its own slope
+    intervalBlend:    0.35,     // how wide the fade is around that spacing (fraction of it)
+    minSegment:       24,       // contour lines shorter than this on screen, in px, stay out (small loops, nibs)
+    localRadius:      110,      // km around the town where the topo is at full strength …
+    localFeather:     1,        // … and, as a multiple of that radius, how far beyond it fades out
+    handoffSoftness:  0.4,      // how gradually one terrain grid's lines give way to the next finer one
 
     // --- camera ----------------------------------------------------------
     tilt:          31,          // degrees above the horizon; 90 = straight down, 0 = eye level
     lens:          8,           // field of view; lower = flatter and more isometric
-    startHeading:  0,           // which way it faces, in degrees; 0 = north up, held all the way down
+    startHeading:  0,           // which way it faces on the way down, in degrees; 0 = north up
     rotateSeconds: 120,         // seconds per full turn; 0 = hold still
     fitMargin:     1.1,         // breathing room around the county; 1 = edge to edge, higher = more padding
     dragToOrbit:   false,       // let visitors drag to spin it; auto-rotation resumes afterwards
@@ -63,6 +74,14 @@ to the value shown here.
     approachScroll:  '',        // selector of the tall track the stage is stuck inside; progress follows its scroll
     approachLens:    38,        // field of view at the top; it narrows to `lens` on the way down
     approachDamping: 0.12,      // how quickly the view follows the scroll (1 = instantly)
+    tiltStart:       0.35,      // progress over which the tilt comes on …
+    tiltEnd:         0.72,      // … and is done
+    lensStart:       0,         // progress over which the lens narrows from approachLens to lens …
+    lensEnd:         1,         // … and is done
+    orbitStart:      0.86,      // progress at which the camera begins its arc around the county
+    orbitAmount:     12,        // degrees of heading that arc covers by progress 1
+    landingRate:     45,        // degrees per unit of progress it is still turning at on arrival (the turntable carries on from there)
+    orbitEasing:     'velocity',// 'velocity' (arrives still moving, at landingRate) | 'smoothstep' | 'ease-in' | 'linear'
 
     // --- data ------------------------------------------------------------
     data: {},                   // { base, local, region, lines } — defaults to ./data/ next to the script
@@ -83,16 +102,20 @@ Or the no-JavaScript way — give any element `data-topo` and it mounts itself:
 ## The descent
 
 `approach: true` opens on the whole Earth, the county facing you, and descends to the frame the
-turntable would otherwise open on. Progress 0 is the globe, 1 is the landing frame. On the way the
-country outlines and a 15° graticule hold until about 1,600 km across and North America in more
-detail until 100 km; the county line arrives once its shape can be read, from about 700 km; roads and
-rivers from 90 km. The contours never arrive in bands: see "How the world is built".
+turntable would otherwise open on. Progress 0 is the globe, 1 is the landing frame. From orbit the map
+is outlines only: the country outlines and a 15° graticule, the state lines from about 2,000 km down
+to 200 km, North America in more detail until 100 km, the county line once its shape can be read (from
+about 700 km), roads and rivers from 90 km. There is no topo at all at those scales. The contours begin
+to resolve, quietly and broadly around the county, from `revealStart` (550 km) and are fully there by
+`revealFull` (120 km) — see "How the world is built".
 
-The camera holds `startHeading` the whole way down — there is no swing — so the only moves are the
-descent itself and the tilt. The look-at point settles on the county over the first 45%, the tilt
-comes on through the middle (35% to 72%, so it has settled before the county-scale contours are in),
-and the last third is only the approach: zoom, and the lens narrowing from `approachLens` to `lens`.
-Once it lands, rotation and drag take over.
+The camera holds `startHeading` (north up) through the descent. The look-at point settles on the county
+over the first 45%, the tilt comes on from `tiltStart` to `tiltEnd` (35% to 72%), and the lens narrows
+from `approachLens` to `lens`. From `orbitStart` (86%) the camera eases into a shallow arc around the
+county — `orbitAmount` degrees of heading by the end, arriving still turning at `landingRate` — and the
+turntable simply carries that motion on: nothing is reset on landing, and scrolling back up eases the
+turn away again rather than snapping. `mount()` resolves to an instance with `set({...})` for changing
+any of these in place.
 
 Drive it from scroll with a tall track and a sticky stage:
 
@@ -131,32 +154,35 @@ not squares), so a line can never fall below the surface it sits on and come out
 and the country outlines are draped the same way — on the continental relief where there is land, on
 the sea-level sphere elsewhere — so they ride over the terrain rather than being buried under it.
 
-There are no contour levels of detail to see, because no line is ever switched as a layer. Every
-contour, from every grid, is drawn by one material — one colour, one width, one depth rule — and each
-segment decides for itself whether it is on screen, in the vertex shader, from three things:
+There are no contour levels of detail to see. Contours are cut from the regional grid (25 m, 1 km
+cells) and the county grid (12.5 m, 200 m cells) only — never from the continental grid, which is
+relief and nothing else — and every contour is drawn by one material: one colour, one width, one
+depth rule. Each level's segments are traced into whole polylines, and a line's opacity is a product
+of things that are either the same along its whole length or vary only very gradually across the map,
+so a line is always either there, complete, or not: it fades in as one piece and never draws itself on.
 
-- **Room.** Contour levels nest (a 100 m line is also a 200 m, 400 m, 800 m line), so each level is
-  tagged with the coarsest set it belongs to, up to 1,600 m. A segment resolves in once the lines of
-  *that* set would fall `contourSpacing` pixels apart at the segment's own depth on screen — the set's
-  interval over the local slope, times pixels per metre there. So the 800 m lines are on from orbit
-  where the land is gentle enough, the 400 m lines fill in between them where there is room, then
-  the 200 m, and so on down to the finest interval; nothing is ever replaced, only added between what
-  is already there, and steep ground resolves later than flat ground rather than all at once.
-- **Resolution.** A grid's lines also wait until its own finest feature (its smoothing scale: 15 km,
-  2.5 km, 250 m) spans about four pixels, so a fine line never arrives as a scribble; inside a finer
-  grid's extent the coarser grid's lines go out on exactly the same test, per vertex, and the finer
-  grid's lines — the same levels, from nearly the same heights — come in. A set that was on stays on:
-  each set is judged by the slope field of the grid that first carried it, whichever grid a line is
-  cut from. The tests are in CSS pixels, so on a narrow phone the county-scale lines may never
-  quite resolve at the landing frame; the regional lines stand in, and the map stays legible.
-- **Margins.** Each grid's outer margin is blended toward the next coarser field and its lines fade out
-  across it while the coarser lines fade in, so no level ends where its data does, at any view.
+- **Reveal.** Nothing at all wider than `revealStart`; full by `revealFull`; `revealSoftness` shapes
+  the curve between. Driven by view width, not scroll progress.
+- **Mask.** A wide feathered disc around the town (`localRadius`, `localFeather`): the detail belongs
+  to the destination and distant terrain never acquires it. The feather is far wider than the frame at
+  the reveal, so its edge is never seen.
+- **Room.** Levels nest (a 100 m line is also a 200 m, 400 m … line), so each level is tagged with the
+  coarsest set it belongs to, up to 1,600 m, and a set resolves in once its lines would fall
+  `contourSpacing` pixels apart at the anchor. Nothing is ever replaced, only added between what is
+  already there. The slope that decides it is one number per polyline (the mean along it), pulled toward
+  the region's typical slope by `spacingTolerance`, and the fade is `intervalBlend` wide.
+- **Length.** A polyline shorter than `minSegment` px on screen stays out, so no small loops or nibs.
+- **Grids.** The regional grid's lines wait until its smoothing scale (2.5 km) spans a few pixels; inside
+  the county grid's extent they give way, over `handoffSoftness`, to the county grid's lines (same
+  levels, from nearly the same heights) as *its* scale (250 m) does. Each grid's outer margin is
+  blended toward the next coarser field and its lines fade across it, so no level ends where its data does.
 
-Ramps are short (about ±10% of the zoom) and the tests are by pixels per metre, not by scroll
-progress, so they stay right if the track or the lens changes. The county geometry is cut after the
+All of this is by pixels per metre, not by scroll progress, so it stays right if the track or the lens
+changes. `debug: 'intervals'` colours every contour set differently and `debug: 'grids'` colours the
+three reliefs and their lines by grid, for tuning only.
 first frame, so the globe is on screen while it happens, and the pixel ratio is capped at 1.5.
 
-There are no state lines and no index lines; where they were, the relief is.
+There are no index lines; the state lines are back, in the muted colour, for the wide views.
 
 ## Styling the label with your own classes
 
@@ -198,6 +224,6 @@ metres about 36.35972, −85.65472 and densified to ~80 m. Until then they are o
 
 ## Notes
 
-- ~75 KB script; `data/` is ~1.1 MB (cont.png 476 KB, region.png 274 KB, local.png 153 KB, lines.json 164 KB, ~120 KB gzipped) — the PNGs are already compressed. The globe is on screen as soon as the script and `cont.png` are in; the rest is cut after the first frame. three.js r128 loads from cdnjs automatically if the page doesn't already have `THREE`.
+- ~75 KB script; `data/` is ~1.1 MB (cont.png 476 KB, region.png 274 KB, local.png 153 KB, lines.json 218 KB, ~120 KB gzipped) — the PNGs are already compressed. The globe is on screen as soon as the script and `cont.png` are in; the rest is cut after the first frame. three.js r128 loads from cdnjs automatically if the page doesn't already have `THREE`.
 - Pauses rendering when scrolled out of view; honours `prefers-reduced-motion` (stays still, and the descent follows the scroll without damping).
 - Terrain: SRTM 1-arc-second (NASA) and Terrain Tiles (Mapzen / AWS Open Data). County: Census cartographic boundary, 1:500k. Countries: Natural Earth 1:110M world, 1:50M North America. The county outline follows the river; the elevation is the true large-scale shape of the terrain, not survey-grade detail.

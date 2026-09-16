@@ -13,7 +13,7 @@
  *   data/local.png   1-arc-second SRTM, resampled to 200 m over the county and ~22 km around it
  *   data/region.png  Terrain Tiles (Mapzen/AWS) at 1 km over 600 x 500 km, for the contours seen on the way in
  *   data/cont.png    the same at 5 km over 5800 x 3300 km, the contours seen from the continent's height
- *   data/lines.json  Natural Earth countries (110m world, 50m North America) and the Census county line (500k)
+ *   data/lines.json  Natural Earth countries (110m world, 50m North America), US states (10m) and the Census county line (500k)
  *
  * Colours can be CSS variables: --topo-line, --topo-muted, --topo-boundary, --topo-block, --topo-label, --topo-county,
  * --topo-road, --topo-water, --topo-bg on the element (or anywhere above it), or the site palette's --map-bg, --topo,
@@ -31,6 +31,16 @@
     "lineColor": "var(--topo-line, var(--topo, #525352))",
     "lineOpacity": 1,
     "contourSpacing": 16,
+    "spacingTolerance": 0.5,
+    "intervalBlend": 0.35,
+    "minSegment": 24,
+    "revealStart": 550,
+    "revealFull": 120,
+    "revealSoftness": 1,
+    "localRadius": 110,
+    "localFeather": 1,
+    "handoffSoftness": 0.4,
+    "debug": "",
     "mutedColor": "var(--topo-muted, #3f4040)",
     "boundaryColor": "var(--topo-boundary, var(--boundary, #626362))",
     "blockColor": "var(--topo-block, var(--map-bg, #222322))",
@@ -54,6 +64,14 @@
     "approachScroll": "",
     "approachLens": 38,
     "approachDamping": 0.12,
+    "tiltStart": 0.35,
+    "tiltEnd": 0.72,
+    "lensStart": 0,
+    "lensEnd": 1,
+    "orbitStart": 0.86,
+    "orbitAmount": 12,
+    "landingRate": 45,
+    "orbitEasing": "velocity",
     "data": {}
   };
 
@@ -162,35 +180,51 @@
     // (the set's interval over the local slope, times pixels per metre at the segment's own depth): it resolves in
     // over a short ramp once that spacing passes the target, so detail arrives where the map has room for it and
     // nowhere else, and the eye never sees one level hand over to the next.
-    // A grid's lines only resolve in once its own finest feature (res, its smoothing scale) spans about 3 px, and
-    // inside a finer grid's extent they resolve out again as that grid's do the same — per vertex, at that vertex's
-    // depth, so a tilted view hands over near before far. aFade is a fixed fade (a grid's outer margin); aHand is
-    // how far the vertex is into the hand-over zone of the next finer grid.
+    // Every contour, from every grid, is drawn by this one material. A line is either there, complete, or not: its
+    // opacity is a product of things that are uniform along it or vary only very gradually across the map —
+    //   reveal   the whole topo layer, by view width (revealStart → revealFull), nothing at all from orbit
+    //   mask     a wide feathered disc around the county (localRadius, localFeather): detail belongs to the destination
+    //   room     the contour *set* the line belongs to (its interval over a slope that is one number per polyline,
+    //            pulled toward the region's typical slope by spacingTolerance) would fall contourSpacing px apart
+    //   length   the whole polyline is at least minSegment px long, so small loops and nibs stay out
+    //   grid     the grid's own resolution spans a few px (in), and the finer grid's does (out), inside its extent
+    // Nothing varies along a line by slope, so no line ever draws itself on: it fades in as one piece.
     const topoMats=[];
-    const topoMat=(resIn,resOut,depthTest)=>{ const m=new THREE.ShaderMaterial({ uniforms:{ uColor:{value:new THREE.Color(CONFIG.lineColor)}, uOpacity:{value:CONFIG.lineOpacity??1}, uK:{value:1}, uKr:{value:1}, uSOn:{value:CONFIG.contourSpacing||16}, uResIn:{value:resIn}, uResOut:{value:resOut} },
-      vertexShader:`attribute float aInt; attribute float aSlope; attribute float aFade; attribute float aHand; uniform float uK; uniform float uKr; uniform float uSOn; uniform float uResIn; uniform float uResOut; varying float vA;
+    const topoMat=(resIn,resOut,depthTest,gridId)=>{ const m=new THREE.ShaderMaterial({ uniforms:{ uColor:{value:new THREE.Color(CONFIG.lineColor)}, uOpacity:{value:1}, uPpm:{value:1}, uPpmR:{value:1}, uVw:{value:1e7},
+        uSOn:{value:16}, uTol:{value:0.5}, uBlend:{value:0.35}, uMinLen:{value:24}, uR0:{value:1e6}, uR1:{value:1e5}, uSoft:{value:1}, uRad:{value:1e5}, uFeather:{value:1e5}, uHandSoft:{value:0.4}, uGRep:{value:0.03},
+        uResIn:{value:resIn}, uResOut:{value:resOut}, uDebug:{value:0}, uGridId:{value:gridId} },
+      vertexShader:`attribute float aInt; attribute float aSlope; attribute float aLen; attribute float aDist; attribute float aFade; attribute float aHand;
+        uniform float uPpm, uPpmR, uVw, uSOn, uTol, uBlend, uMinLen, uR0, uR1, uSoft, uRad, uFeather, uHandSoft, uGRep, uResIn, uResOut; varying float vA; varying float vInt;
         #include <common>
         #include <logdepthbuf_pars_vertex>
         void main(){ vec4 mv=modelViewMatrix*vec4(position,1.0); gl_Position=projectionMatrix*mv;
-          float d=max(1.0,-mv.z);
-          float sPx=aInt/max(aSlope,1e-4)*uK/d;
-          float on=uResIn>0.0 ? smoothstep(2.8,5.2,uResIn*uKr/d) : 1.0;
-          float off=uResOut>0.0 ? smoothstep(2.8,5.2,uResOut*uKr/d) : 0.0;
-          vA=smoothstep(uSOn*0.9,uSOn*1.1,sPx)*(1.0-aFade)*on*(1.0-aHand*off);
+          float reveal=pow(smoothstep(0.0,1.0,(log(uR0)-log(uVw))/(log(uR0)-log(uR1))),uSoft);
+          float mask=1.0-smoothstep(uRad,uRad+uFeather,aDist);
+          float g=uGRep*pow(max(aSlope,1e-4)/uGRep,uTol);
+          float room=smoothstep(uSOn*(1.0-uBlend),uSOn*(1.0+uBlend),aInt/g*uPpm);
+          float len=uMinLen>0.0 ? smoothstep(uMinLen*0.6,uMinLen*1.4,aLen*uPpm) : 1.0;
+          float on=uResIn>0.0 ? smoothstep(4.0*(1.0-uHandSoft),4.0*(1.0+uHandSoft),uResIn*uPpmR) : 1.0;
+          float off=uResOut>0.0 ? smoothstep(4.0*(1.0-uHandSoft),4.0*(1.0+uHandSoft),uResOut*uPpmR) : 0.0;
+          vA=reveal*mask*room*len*(1.0-aFade)*on*(1.0-aHand*off); vInt=aInt;
           #include <logdepthbuf_vertex>
         }`,
-      fragmentShader:`uniform vec3 uColor; uniform float uOpacity; varying float vA;
+      fragmentShader:`uniform vec3 uColor; uniform float uOpacity; uniform float uDebug; uniform float uGridId; varying float vA; varying float vInt;
         #include <logdepthbuf_pars_fragment>
+        vec3 hue(float h){ return clamp(abs(mod(h*6.0+vec3(0.0,4.0,2.0),6.0)-3.0)-1.0,0.0,1.0); }
         void main(){
           #include <logdepthbuf_fragment>
-          float a=vA*uOpacity; if(a<0.004) discard; gl_FragColor=vec4(uColor,a);
+          float a=vA*uOpacity; if(a<0.004) discard;
+          vec3 c=uColor;
+          if(uDebug>1.5) c=hue(uGridId*0.33+0.05)*0.8+0.2; else if(uDebug>0.5) c=hue(fract(log2(vInt/12.5)*0.17+0.6))*0.8+0.2;
+          gl_FragColor=vec4(c,a);
         }`,
       transparent:true, depthWrite:true, depthFunc:THREE.LessDepth, depthTest:depthTest }); topoMats.push(m); return m; };
     const countyMat=new THREE.LineBasicMaterial({color:CONFIG.countyColor,transparent:true,opacity:1});
     const naMat=new THREE.LineBasicMaterial({color:CONFIG.boundaryColor,transparent:true,opacity:0.85});
-    const globeMat=new THREE.LineBasicMaterial({color:CONFIG.mutedColor,transparent:true,opacity:0.9}), gratMat=new THREE.LineBasicMaterial({color:CONFIG.mutedColor,transparent:true,opacity:0.6});
+    const globeMat=new THREE.LineBasicMaterial({color:CONFIG.mutedColor,transparent:true,opacity:0.9}), gratMat=new THREE.LineBasicMaterial({color:CONFIG.mutedColor,transparent:true,opacity:0.6}), stateMat=new THREE.LineBasicMaterial({color:CONFIG.mutedColor,transparent:true,opacity:0.9});
     const roadMat=new THREE.LineBasicMaterial({color:CONFIG.roadColor,transparent:true,opacity:0.85}), waterMat=new THREE.LineBasicMaterial({color:CONFIG.waterColor,transparent:true,opacity:0.95});
-    const surfMat=new THREE.MeshBasicMaterial({color:CONFIG.blockColor,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:2,polygonOffsetUnits:2});
+    const surfMats=[0,1,2].map(()=>new THREE.MeshBasicMaterial({color:CONFIG.blockColor,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:2,polygonOffsetUnits:2}));   // one per grid, so the debug view can tell them apart
+    const surfMat=surfMats[0];
     const faded=[];   // line objects whose vertex colours blend toward the relief colour near the fine grid's edge; recoloured on theme change
     const segs=(arr,mat,fade)=>{ const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.Float32BufferAttribute(arr,3)); let m=mat;
       if(fade){ m=mat.clone(); m.vertexColors=true; g.setAttribute('color',new THREE.Float32BufferAttribute(new Float32Array(fade.length*3),3)); g.userData.fade=fade; g.userData.base=mat; }
@@ -211,18 +245,19 @@
         for(let i=0;i<w;i++) for(let j=0;j<h;j++){ let a=0,n=0; for(let k=-r;k<=r;k++){ const jj=j+k; if(jj>=0&&jj<h){ a+=t[jj*w+i]; n++; } } g[j*w+i]=a/n; } }
       const f=gridZ({x0:G.x0,y1:G.y1,cell,w,h,z:g}); return (x,y)=>{ const v=f(x,y); return isNaN(v)?0.05:v; }; };
     // Levels nest: a 100 m line is also a 200 m, 400 m … line, so each level is tagged with the coarsest set (up to
-    // 1600 m) it belongs to, and turns on when *that* set has room — the finer sets only ever add lines between
-    // the ones already there. fade(x,y) is a fixed fade; hand(x,y) how far into the next finer grid's hand-over the
-    // segment is; segments where inner(x,y) holds (deep inside the finer grid, where the finer relief is the ground)
-    // go in a second object drawn without depth testing, so the finer relief cannot bury them before they hand over.
-    function contours(G, interval, lift, fade, hand, inner, slopeFor, resIn, resOut){
-      const A={pos:[],ints:[],slopes:[],fades:[],hands:[]}, B={pos:[],ints:[],slopes:[],fades:[],hands:[]}; const {w,h,z}=G; let lo=1e9,hi=-1e9; for(const v of z){ if(v<lo)lo=v; if(v>hi)hi=v; }
+    // 1600 m) it belongs to; the finer sets only ever add lines between the ones already there. The segments of each
+    // level are traced into polylines, and every segment of a polyline carries the same slope (the length-weighted
+    // mean along it) and the same length, so the whole line shares one fate. fade(x,y) is a fixed fade; hand(x,y)
+    // how far into the next finer grid's hand-over the segment is; segments where inner(x,y) holds go in a second
+    // object drawn without depth testing, so the finer relief cannot bury them before they hand over.
+    function contours(G, interval, lift, fade, hand, inner, slope, resIn, resOut, gridId){
+      const A={pos:[],ints:[],slopes:[],lens:[],dists:[],fades:[],hands:[]}, B={pos:[],ints:[],slopes:[],lens:[],dists:[],fades:[],hands:[]}; const {w,h,z}=G; let lo=1e9,hi=-1e9; for(const v of z){ if(v<lo)lo=v; if(v>hi)hi=v; }
       const X=(i)=>G.x0+i*G.cell, Y=(j)=>G.y1-j*G.cell;
       for(let lv=Math.floor(lo/interval)*interval+interval; lv<hi; lv+=interval){
-        let k=Math.round(lv/interval), m=1; if(k===0) m=1600/interval; else while(k%2===0 && interval*m<1600){ k/=2; m*=2; } const I=interval*m, slopeOf=slopeFor(I);
-        const push=(p,q)=>{ const mx=(p[0]+q[0])/2, my=(p[1]+q[1])/2; const f=fade?fade(mx,my):0; if(f>=0.999) return; const hd=hand?hand(mx,my):0, sl=slopeOf(mx,my), o=(inner&&inner(mx,my))?B:A;
-          const P=toWorld(p[0],p[1],lv+lift), Q=toWorld(q[0],q[1],lv+lift); o.pos.push(P[0],P[1],P[2],Q[0],Q[1],Q[2]); o.ints.push(I,I); o.slopes.push(sl,sl); o.fades.push(f,f); o.hands.push(hd,hd); };
+        let k=Math.round(lv/interval), m=1; if(k===0) m=1600/interval; else while(k%2===0 && interval*m<1600){ k/=2; m*=2; } const I=interval*m;
+        const segs2=[];   // [x0,y0,x1,y1] in local metres, this level only
         const cross=(x0,y0,h0,x1,y1,h1)=>{ const t=(lv-h0)/(h1-h0); return [x0+(x1-x0)*t, y0+(y1-y0)*t]; };
+        const push=(p,q)=>segs2.push([p[0],p[1],q[0],q[1]]);
         const tri=(x0,y0,h0,x1,y1,h1,x2,y2,h2)=>{ const s0=h0>=lv,s1=h1>=lv,s2=h2>=lv; if(s0===s1&&s1===s2) return;
           if(s0!==s1&&s1!==s2) push(cross(x0,y0,h0,x1,y1,h1),cross(x1,y1,h1,x2,y2,h2));
           else if(s1!==s2&&s2!==s0) push(cross(x1,y1,h1,x2,y2,h2),cross(x2,y2,h2,x0,y0,h0));
@@ -233,18 +268,30 @@
             const x0=X(i),x1=X(i+1);
             tri(x0,y0,a, x0,y1,d, x1,y0,b); tri(x1,y0,b, x0,y1,d, x1,y1,c);
           } }
+        // trace: segments sharing an endpoint belong to one polyline (union-find on quantised endpoints)
+        const n=segs2.length; if(!n) continue; const parent=new Int32Array(n); for(let i=0;i<n;i++) parent[i]=i;
+        const find=(i)=>{ while(parent[i]!==i){ parent[i]=parent[parent[i]]; i=parent[i]; } return i; };
+        const key=(x,y)=>Math.round(x*4)+':'+Math.round(y*4); const seen=new Map();
+        for(let i=0;i<n;i++){ const sg=segs2[i]; for(const kk of [key(sg[0],sg[1]),key(sg[2],sg[3])]){ const j=seen.get(kk); if(j===undefined) seen.set(kk,i); else { const a=find(i),b=find(j); if(a!==b) parent[a]=b; } } }
+        const len=new Map(), slw=new Map();   // per polyline: total length, length-weighted slope
+        const segLen=new Float32Array(n), segSl=new Float32Array(n);
+        for(let i=0;i<n;i++){ const sg=segs2[i]; const l=Math.hypot(sg[2]-sg[0],sg[3]-sg[1]); const sl=slope((sg[0]+sg[2])/2,(sg[1]+sg[3])/2); segLen[i]=l; segSl[i]=sl; const r=find(i); len.set(r,(len.get(r)||0)+l); slw.set(r,(slw.get(r)||0)+l*sl); }
+        for(let i=0;i<n;i++){ const sg=segs2[i], r=find(i), L0=len.get(r), sl=slw.get(r)/Math.max(1e-6,L0);
+          const mx=(sg[0]+sg[2])/2, my=(sg[1]+sg[3])/2; const f=fade?fade(mx,my):0; if(f>=0.999) continue; const hd=hand?hand(mx,my):0, o=(inner&&inner(mx,my))?B:A;
+          const P=toWorld(sg[0],sg[1],lv+lift), Q=toWorld(sg[2],sg[3],lv+lift); o.pos.push(P[0],P[1],P[2],Q[0],Q[1],Q[2]); o.ints.push(I,I); o.slopes.push(sl,sl); o.lens.push(L0,L0);
+          o.dists.push(Math.hypot(sg[0],sg[1]),Math.hypot(sg[2],sg[3])); o.fades.push(f,f); o.hands.push(hd,hd); }
       }
-      const make=(o,depthTest)=>{ if(!o.pos.length) return null; const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.Float32BufferAttribute(o.pos,3)); g.setAttribute('aInt',new THREE.Float32BufferAttribute(o.ints,1)); g.setAttribute('aSlope',new THREE.Float32BufferAttribute(o.slopes,1)); g.setAttribute('aFade',new THREE.Float32BufferAttribute(o.fades,1)); g.setAttribute('aHand',new THREE.Float32BufferAttribute(o.hands,1));
-        const l=new THREE.LineSegments(g,topoMat(resIn,resOut,depthTest)); group.add(l); return l; };
+      const make=(o,depthTest)=>{ if(!o.pos.length) return null; const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.Float32BufferAttribute(o.pos,3)); g.setAttribute('aInt',new THREE.Float32BufferAttribute(o.ints,1)); g.setAttribute('aSlope',new THREE.Float32BufferAttribute(o.slopes,1)); g.setAttribute('aLen',new THREE.Float32BufferAttribute(o.lens,1)); g.setAttribute('aDist',new THREE.Float32BufferAttribute(o.dists,1)); g.setAttribute('aFade',new THREE.Float32BufferAttribute(o.fades,1)); g.setAttribute('aHand',new THREE.Float32BufferAttribute(o.hands,1));
+        const l=new THREE.LineSegments(g,topoMat(resIn,resOut,depthTest,gridId)); group.add(l); return l; };
       return [ make(A,true), make(B,false) ];
     }
     const downsample=(G,f)=>{ const w=Math.floor((G.w-1)/f)+1, h=Math.floor((G.h-1)/f)+1, z=new Float32Array(w*h); for(let j=0;j<h;j++) for(let i=0;i<w;i++) z[j*w+i]=G.z[(j*f)*G.w+i*f]; return {w,h,z,cell:G.cell*f,x0:G.x0,y1:G.y1}; };
     // ---- surfaces: an opaque relief under the lines so contours behind a ridge are hidden, not drawn through it
-    function surface(G, step, skip){
+    function surface(G, step, skip, gridId){
       const cols=Math.floor((G.w-1)/step)+1, rows=Math.floor((G.h-1)/step)+1, pos=new Float32Array(cols*rows*3), idx=[];
       for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){ const i=Math.min(G.w-1,c*step), j=Math.min(G.h-1,r*step); const x=G.x0+i*G.cell, y=G.y1-j*G.cell; const p=toWorld(x,y,G.z[j*G.w+i]); const k=(r*cols+c)*3; pos[k]=p[0]; pos[k+1]=p[1]; pos[k+2]=p[2]; }
       for(let r=0;r<rows-1;r++) for(let c=0;c<cols-1;c++){ if(skip){ const x=G.x0+(c+0.5)*step*G.cell, y=G.y1-(r+0.5)*step*G.cell; if(skip(x,y)) continue; } const a=r*cols+c,b=a+1,d=a+cols,e=d+1; idx.push(a,d,b,b,d,e); }
-      const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(pos,3)); g.setIndex(idx); const m=new THREE.Mesh(g,surfMat); group.add(m); return m;
+      const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(pos,3)); g.setIndex(idx); const m=new THREE.Mesh(g,surfMats[gridId||0]); group.add(m); return m;
     }
     const L={};
     // Three reliefs, nested, each the ground wherever it is the finest one there: the continental (5 km cells) has a
@@ -253,22 +300,20 @@
     // work the same way: a grid's lines are only cut where it is the ground, and fade out across the margin where
     // the finer grid's lines — cut at the same levels, from nearly the same heights — fade in. Nothing ends where
     // its data does, at any view: the coarser lines simply continue beyond the finer grid's extent.
-    const inRegion=inGrid(DATA.region,0), regCore=inGrid(DATA.region,5000);
+    const regCore=inGrid(DATA.region,5000);
     const inLocalCore=(x,y)=>{ const G=DATA.local, m=1500; return x>=G.x0+m&&x<=G.x0+(G.w-1)*G.cell-m&&y<=G.y1-m&&y>=G.y1-(G.h-1)*G.cell+m; };
-    const contHand=(x,y)=>inRegion(x,y)?1-regionFade(x,y):0;      // the continental lines' hand-over zone: the regional grid, less its blended margin
     const localHand=(x,y)=>inLocal(x,y)?1-edgeFade(x,y):0;        // the regional lines' hand-over zone: the fine grid, less its blended margin
-    // the slope each contour set is judged by: the field of the coarsest grid that carries the set, whichever grid the
-    // line is cut from — so when a finer grid takes a set over, its lines are on exactly where the coarser ones were
-    const slopeC=slopeField(DATA.cont,1); let slopeR=null, slopeL=null;
-    const slopeFor=(I)=> I>=CONFIG.contInterval ? slopeC : I>=CONFIG.regionInterval && slopeR ? slopeR : (slopeL||slopeR||slopeC);
-    L.contSurf   = surface(DATA.cont, 1, regCore);
-    L.regionSurf = surface(DATA.region, 1, inLocalCore);
-    [L.cont, L.contIn] = contours(DATA.cont, CONFIG.contInterval, 30, null, contHand, regCore, slopeFor, 0, REGION.res);
-    // the finer levels are cut after the first frame, so the globe is on screen while the county's geometry is still being generated
-    const buildRegion=()=>{ slopeR=slopeField(DATA.region,2); [L.region, L.regionIn] = contours(DATA.region, CONFIG.regionInterval, 4, regionFade, localHand, inLocalCore, slopeFor, REGION.res, LOCAL.res); };
+    L.contSurf   = surface(DATA.cont, 1, regCore, 0);
+    L.regionSurf = surface(DATA.region, 1, inLocalCore, 1);
+    // no contours at continental scale: from orbit the map is outlines, water and graticule, and the topo belongs to
+    // the destination — it is cut from the regional grid (25 m and its nested coarser sets) and the county grid (12.5 m)
+    let slopeR=null, gRep=0.03;   // gRep: the region's typical slope within the county's radius; every set is judged against it
+    const buildRegion=()=>{ slopeR=slopeField(DATA.region,2);
+      { const G=DATA.region, r=(CONFIG.localRadius||110)*1000, v=[]; for(let j=0;j<G.h;j+=2) for(let i=0;i<G.w;i+=2){ const x=G.x0+i*G.cell, y=G.y1-j*G.cell; if(x*x+y*y<r*r) v.push(slopeR(x,y)); } v.sort((a,b)=>a-b); if(v.length) gRep=Math.max(0.003,v[v.length>>1]); }
+      [L.region, L.regionIn] = contours(DATA.region, CONFIG.regionInterval, 4, regionFade, localHand, inLocalCore, slopeR, REGION.res, LOCAL.res, 1); };
     const buildLocal=()=>{
-      L.localSurf = surface(DATA.local, 1, null);
-      slopeL=slopeField(DATA.local,4); [L.local] = contours(DATA.local, CONFIG.localInterval, 1.0, edgeFade, null, null, slopeFor, LOCAL.res, 0);
+      L.localSurf = surface(DATA.local, 1, null, 2);
+      const slopeL=slopeField(DATA.local,4); [L.local] = contours(DATA.local, CONFIG.localInterval, 1.0, edgeFade, null, null, slopeL, LOCAL.res, 0, 2);
       recolourFaded();
     };
     // the globe under everything: an occluder a little below sea level so the far side's outlines stay hidden
@@ -289,6 +334,7 @@
     const dq=(rings,f)=>rings.map(r=>r.map(([a,b])=>[a/f,b/f]));
     L.globe = drapeLL(dq(DATA.lines.globe,100), globeMat, 0, false);
     L.na    = drapeLL(dq(DATA.lines.na,100),    naMat,  40, true);
+    L.states= DATA.lines.states ? drapeLL(dq(DATA.lines.states,100), stateMat, 50, 'cont') : null;   // on the continental relief, like the graticule
     { const g=[]; for(let lon=-180;lon<180;lon+=15){ const r=[]; for(let lat=-90;lat<=90;lat+=2) r.push([lon,lat]); g.push(r); } for(let lat=-75;lat<=75;lat+=15){ const r=[]; for(let lon=-180;lon<=180;lon+=2) r.push([lon,lat]); g.push(r); } L.grat=drapeLL(g,gratMat,60,'cont'); }
     // the county line, draped on the fine relief and lifted clear of the contours
     L.county = CONFIG.county ? drapeLL([countyLL],countyMat,12,true,null) : null;
@@ -301,9 +347,9 @@
     if(CONFIG.label){ const h0=heightAt(0,0); pinTop=h0+R*CONFIG.labelHeight/EX; const a=toWorld(0,0,h0), b=toWorld(0,0,pinTop); pinWorld=new THREE.Vector3(...b); pinMat=new THREE.LineBasicMaterial({color:CONFIG.labelColor}); group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a),pinWorld]),pinMat)); labelEl.textContent=CONFIG.label; if(!labelStyled) labelEl.style.color=CONFIG.labelColor; } else labelEl.remove();
 
     // ---- camera + fit: frame the county's box, over a full turn, so nothing clips as it rotates
-    const polFinal=(90-CONFIG.tilt)*D2R, azFinal=-(CONFIG.startHeading||0)*D2R;
+    const polFinal=()=>(90-CONFIG.tilt)*D2R, azHome=()=>-(CONFIG.startHeading||0)*D2R;
     const pivotHome=new THREE.Vector3(...toWorld(CX,CY,(zlo+zhi)/2)), pivot=pivotHome.clone();
-    let pol=polFinal, az=azFinal, dragging=null, lastPointer=0, dist=R*3, fitDist=R*3, alive=true;
+    let pol=polFinal(), az=azHome(), spin=0, dragging=null, lastPointer=0, dist=R*3, fitDist=R*3, alive=true;
     function placeCam(a){ camera.position.set(pivot.x+dist*Math.sin(pol)*Math.sin(a), pivot.y+dist*Math.cos(pol), pivot.z+dist*Math.sin(pol)*Math.cos(a)); camera.lookAt(pivot); camera.updateMatrixWorld(); }
     const fitPts=[]; for(const x of [cx0,cx1]) for(const y of [cy0,cy1]){ fitPts.push(new THREE.Vector3(...toWorld(x,y,zlo)), new THREE.Vector3(...toWorld(x,y,zhi))); } if(pinWorld) fitPts.push(pinWorld);
     function fit(){
@@ -313,7 +359,7 @@
       pendingFit=false;
       const pr=Math.min(devicePixelRatio||1,1.5); if(pr!==renderer.getPixelRatio()) renderer.setPixelRatio(pr);
       renderer.setSize(w,h,false); camera.aspect=w/h;
-      dist=R*3; pol=polFinal; pivot.copy(pivotHome); camera.fov=CONFIG.lens; camera.updateProjectionMatrix();
+      dist=R*3; pol=polFinal(); pivot.copy(pivotHome); camera.fov=CONFIG.lens; camera.updateProjectionMatrix();
       const margin=1/(CONFIG.fitMargin||1.1);
       const measure=()=>{ let minX=1e9,maxX=-1e9,minY=1e9,maxY=-1e9; for(let k=0;k<24;k++){ placeCam(k/24*Math.PI*2); for(const p of fitPts){ const q=p.clone().project(camera); if(q.x<minX)minX=q.x; if(q.x>maxX)maxX=q.x; if(q.y<minY)minY=q.y; if(q.y>maxY)maxY=q.y; } } return {minX,maxX,minY,maxY}; };
       for(let i=0;i<4;i++){ const b=measure(); const ext=Math.max((b.maxX-b.minX)/2,(b.maxY-b.minY)/2)/margin; if(ext>0) dist*=ext; }
@@ -328,30 +374,38 @@
       const vw=2*dist*Math.tan(camera.fov*D2R/2)*Math.max(camera.aspect,1/camera.aspect);
       const set=(o,base,a)=>{ if(!o) return; o.material.opacity=base*a; o.visible=a>0.01; };
       const kmOut=(hi,lo)=>smooth(lo,hi,vw), kmIn=(hi,lo)=>1-smooth(lo,hi,vw);   // fade as the view narrows (in) or widens (out)
-      const globe=kmOut(1.6e6,6e5), naA=kmOut(2.5e5,1.0e5);
+      const globe=kmOut(1.6e6,6e5), grat=kmOut(5e5,2.5e5), naA=kmOut(2.5e5,1.0e5), states=kmOut(4e5,2e5);   // the boundaries hand the map to the topo as it resolves
       const near=kmIn(1.5e5,9e4), fine=kmIn(9e4,5.5e4);
       const county=kmIn(7e5,4e5);   // once the county's shape can be read, not before
-      set(L.globe,0.9,globe); set(L.grat,0.6,globe); set(L.na,0.85,naA);
+      set(L.globe,0.9,globe); set(L.grat,0.6,grat); set(L.na,0.85,naA); set(L.states,0.9,states);
       set(L.county,1,county); set(L.roads,0.85,fine); set(L.water,0.95,fine);
-      // the contours judge themselves (see topoMat): pixels per metre at unit depth, discounted a little for the tilt's foreshortening
-      const kr=(host.clientWidth||1)/(2*Math.tan(camera.fov*D2R/2)*camera.aspect), k=kr*Math.sqrt(Math.max(0.15,Math.cos(pol)));
-      for(const m of topoMats){ m.uniforms.uK.value=k; m.uniforms.uKr.value=kr; m.uniforms.uSOn.value=CONFIG.contourSpacing||16; m.uniforms.uOpacity.value=CONFIG.lineOpacity??1; }
+      // the contours (see topoMat): pixels per metre at the anchor, discounted a little for the tilt's foreshortening
+      const ppmR=(host.clientWidth||1)/(2*dist*Math.tan(camera.fov*D2R/2)*camera.aspect), ppm=ppmR*Math.sqrt(Math.max(0.15,Math.cos(pol)));
+      const C=CONFIG, dbg=C.debug==='intervals'?1:C.debug==='grids'?2:0;
+      for(const m of topoMats){ const u=m.uniforms; u.uPpm.value=ppm; u.uPpmR.value=ppmR; u.uVw.value=vw; u.uOpacity.value=C.lineOpacity??1;
+        u.uSOn.value=+C.contourSpacing||16; u.uTol.value=+C.spacingTolerance||0; u.uBlend.value=Math.max(0.02,+C.intervalBlend||0.35); u.uMinLen.value=+C.minSegment||0;
+        u.uR0.value=Math.max(1,+C.revealStart||550)*1000; u.uR1.value=Math.min(u.uR0.value*0.98,Math.max(1,+C.revealFull||120)*1000); u.uSoft.value=Math.max(0.2,+C.revealSoftness||1);
+        u.uRad.value=(+C.localRadius||110)*1000; u.uFeather.value=Math.max(1,(+C.localFeather||1)*(+C.localRadius||110)*1000); u.uHandSoft.value=Math.min(0.95,Math.max(0.05,+C.handoffSoftness||0.4)); u.uGRep.value=gRep; u.uDebug.value=dbg; }
+      for(let i=0;i<3;i++) surfMats[i].color.set(dbg===2 ? ['#3a2e2e','#2e3a2e','#2e2e3a'][i] : C.blockColor);
       return vw;
     }
     // ---- approach: from the whole Earth, town facing us, down to the fitted frame
     let AP=null;
     if(CONFIG.approach){
-      const lens0=CONFIG.approachLens||38, globeC=new THREE.Vector3(0,-RE,0);
-      AP={ target:0, t:0, farDist(){ return 1.15*RE/Math.sin(lens0*D2R/2); }, done(){ return this.t>=0.999; } };
-      // two overlapping phases on one anchor, at the landing heading throughout: the tilt comes on through the
-      // middle (35% to 72% of the scroll, so it has settled before the county-scale contours are in), and the last
-      // third is only the approach itself — zoom and lens — with the camera's orbit centred on the county
+      const lens0=()=>+CONFIG.approachLens||38, globeC=new THREE.Vector3(0,-RE,0);
+      AP={ target:0, t:0, farDist(){ return 1.15*RE/Math.sin(lens0()*D2R/2); }, done(){ return this.t>=0.999; } };
+      // the descent holds startHeading; over the last stretch (orbitStart → 1) the camera eases into a shallow arc
+      // around the county — orbitAmount degrees, still moving at the end (landingRate, degrees per unit of scroll) —
+      // and the turntable simply continues that motion: nothing is reset on landing
+      var orbitAt=function(t){ const s0=Math.min(0.99,Math.max(0,+CONFIG.orbitStart||0.86)); if(t<=s0) return 0; const u=Math.min(1,(t-s0)/(1-s0)), A=(+CONFIG.orbitAmount||0)*D2R, V=(+CONFIG.landingRate||0)*D2R*(1-s0);
+        switch(CONFIG.orbitEasing){ case 'linear': return A*u; case 'smoothstep': return A*u*u*(3-2*u); case 'ease-in': return A*u*u;
+          default: return A*(-2*u*u*u+3*u*u) + V*(u*u*u-u*u); } };   // Hermite: starts at rest, arrives at A with velocity V
       var applyApproach=function(){
         const t=AP.t, e=t*t*(3-2*t);
         dist=Math.exp((1-e)*Math.log(AP.farDist())+e*Math.log(fitDist));
-        camera.fov=(1-e)*lens0+e*CONFIG.lens;
-        az=azFinal;
-        const tilt=smooth(0.35,0.72,t); pol=(1-tilt)*0.02+tilt*polFinal;
+        const lz=smooth(+CONFIG.lensStart||0, Math.max((+CONFIG.lensStart||0)+0.01,+CONFIG.lensEnd||1), t); camera.fov=(1-lz)*lens0()+lz*CONFIG.lens;
+        az=azHome()+orbitAt(t)+spin;
+        const ts=+CONFIG.tiltStart||0.35, te=Math.max(ts+0.01,+CONFIG.tiltEnd||0.72); const tilt=smooth(ts,te,t); pol=(1-tilt)*0.02+tilt*polFinal();
         const q=1-smooth(0,0.45,t); pivot.copy(pivotHome).lerp(globeC,q);
         setFrustum(); placeCam(az);
       };
@@ -364,7 +418,7 @@
     fit(); addEventListener('resize',requestFit);
     const ro = global.ResizeObserver ? new ResizeObserver(requestFit) : null; if(ro) ro.observe(host);
     if(!CONFIG.dragToOrbit) renderer.domElement.style.pointerEvents='none';
-    if(CONFIG.dragToOrbit){ const el=renderer.domElement; el.style.cursor='grab'; el.addEventListener('pointerdown',e=>{ if(AP&&!AP.done()) return; dragging={x:e.clientX}; el.setPointerCapture(e.pointerId); }); el.addEventListener('pointermove',e=>{ if(dragging){ az-=(e.clientX-dragging.x)*0.006; dragging.x=e.clientX; lastPointer=performance.now(); } }); el.addEventListener('pointerup',()=>dragging=null); }
+    if(CONFIG.dragToOrbit){ const el=renderer.domElement; el.style.cursor='grab'; el.addEventListener('pointerdown',e=>{ if(AP&&!AP.done()) return; dragging={x:e.clientX}; el.setPointerCapture(e.pointerId); }); el.addEventListener('pointermove',e=>{ if(dragging){ spin-=(e.clientX-dragging.x)*0.006; dragging.x=e.clientX; lastPointer=performance.now(); } }); el.addEventListener('pointerup',()=>dragging=null); }
     const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
     let visible=true;
     const io=new IntersectionObserver(en=>visible=en[0].isIntersecting); io.observe(host);
@@ -374,7 +428,7 @@
       const pin = labelStyled ? getComputedStyle(labelEl).color : next.labelColor;
       const sig=JSON.stringify([...COLOR_KEYS.map(k=>next[k]), pin]); if(sig===lastColors) return; lastColors=sig; Object.assign(CONFIG,next);
       host.style.background=CONFIG.background; for(const m of topoMats) m.uniforms.uColor.value.set(CONFIG.lineColor);
-      globeMat.color.set(CONFIG.mutedColor); gratMat.color.set(CONFIG.mutedColor); naMat.color.set(CONFIG.boundaryColor);
+      globeMat.color.set(CONFIG.mutedColor); gratMat.color.set(CONFIG.mutedColor); stateMat.color.set(CONFIG.mutedColor); naMat.color.set(CONFIG.boundaryColor);
       surfMat.color.set(CONFIG.blockColor); L.globeMesh.material.color.set(CONFIG.blockColor); countyMat.color.set(CONFIG.countyColor);
       if(pinMat) pinMat.color.set(pin); if(!labelStyled) labelEl.style.color=CONFIG.labelColor;
       roadMat.color.set(CONFIG.roadColor); waterMat.color.set(CONFIG.waterColor);
@@ -391,12 +445,16 @@
         AP.readScroll();
         const k=Math.min(1,Math.max(0,+CONFIG.approachDamping||0)), f=(reduced||k>=1)?1:1-Math.pow(1-k,Math.max(0,Math.min(0.1,dt))*60);
         AP.t += (AP.target-AP.t)*f; if(Math.abs(AP.target-AP.t)<0.0005) AP.t=AP.target;
-        if(!AP.done()){ AP.landed=false; applyApproach(); }
-        else if(!AP.landed){ AP.landed=true; az=azFinal; pol=polFinal; pivot.copy(pivotHome); camera.fov=CONFIG.lens; dist=fitDist; setFrustum(); }
+        // the turntable's turn starts the moment the scroll reaches the end, on top of the orbit already under way,
+        // and eases away again (never snaps) if the visitor scrolls back up
+        const atEnd=AP.target>=0.999;
+        if(atEnd && CONFIG.rotateSeconds>0 && !reduced && !dragging && now-lastPointer>1500) spin+=dt*Math.PI*2/CONFIG.rotateSeconds;
+        else if(!atEnd && !dragging) spin*=Math.exp(-dt*1.5);
+        applyApproach();
+      } else {
+        if(CONFIG.rotateSeconds>0 && !reduced && !dragging && now-lastPointer>1500) spin+=dt*Math.PI*2/CONFIG.rotateSeconds;
+        az=azHome()+spin; placeCam(az);
       }
-      const settled=!AP||AP.done();
-      if(settled && CONFIG.rotateSeconds>0 && !reduced && !dragging && now-lastPointer>1500) az+=dt*Math.PI*2/CONFIG.rotateSeconds;
-      if(settled) placeCam(az);
       layerFade();
       renderer.render(scene,camera);
       if(CONFIG.label && pinWorld){ const p=pinWorld.clone().project(camera); const behind=p.z>1; labelEl.style.opacity=behind?0:1; labelEl.style.left=((p.x+1)/2*host.clientWidth)+'px'; labelEl.style.top=((1-p.y)/2*host.clientHeight)+'px'; }
@@ -404,7 +462,9 @@
     requestAnimationFrame(frame);
     requestAnimationFrame(()=>setTimeout(()=>{ if(!alive) return; buildRegion(); setTimeout(()=>{ if(alive) buildLocal(); },0); },0));
     return { destroy(){ alive=false; io.disconnect(); if(ro) ro.disconnect(); removeEventListener('resize',requestFit); clearInterval(themeWatch); renderer.dispose(); renderer.domElement.remove(); labelEl.remove(); },
-      setAzimuth(a){ az=a; }, get azimuth(){ return az; },
+      setAzimuth(a){ spin=a-azHome(); }, get azimuth(){ return az; },
+      // change settings in place; geometry options (intervals, roads, water, county) still need a fresh mount
+      set(patch){ Object.assign(CONFIG, patch||{}); for(const k of COLOR_KEYS) if(patch&&k in patch){ RAWCOLORS[k]=patch[k]; lastColors=''; } if(patch && ('tilt' in patch || 'lens' in patch || 'fitMargin' in patch || 'labelHeight' in patch)) requestFit(); },
       setProgress(t){ if(AP) AP.target=Math.min(1,Math.max(0,+t||0)); }, get progress(){ return AP?AP.t:1; },
       get state(){ return { progress: AP?AP.t:1, distance: dist, viewWidth: 2*dist*Math.tan(camera.fov*Math.PI/360)*camera.aspect, tilt: 90-pol*180/Math.PI, heading: -az*180/Math.PI, fov: camera.fov }; } };
   }
