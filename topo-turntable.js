@@ -4,7 +4,7 @@
  *
  * Usage:
  *   <div id="topo" style="height:600px"></div>
- *   <script src="https://cdn.jsdelivr.net/gh/volentecreative/hwi-topo@e734575/topo-turntable.js"></script>
+ *   <script src="https://cdn.jsdelivr.net/gh/volentecreative/hwi-topo@7f476d9/topo-turntable.js"></script>
  *   <script>TopoTurntable.mount('#topo', { rotateSeconds: 120 });</script>
  *
  * Or just add data-topo to an element (optional data-config='{"tilt":40}') and it mounts itself.
