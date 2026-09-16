@@ -59,6 +59,13 @@ falls back to the value shown here.
     labelColor:  'var(--topo-label, #ff7a5c)',       // ignored when labelClass is set
     labelFont:   '500 15px/1 "Helvetica Neue", Helvetica, Arial, sans-serif',  // ignored when labelClass is set
 
+    // --- approach: scroll-driven descent from the whole country ------------
+    approach:        false,     // true = open on the lower 48 from straight above and descend to the frame below
+    approachScroll:  '',        // selector of the tall track the stage is stuck inside; progress follows its scroll
+    approachHeading: 0,         // heading at the top (0 = north up); it swings to startHeading on the way down
+    approachLens:    38,        // field of view at the top; it narrows to `lens` on the way down
+    approachDamping: 0.12,      // how quickly the view follows the scroll (1 = instantly)
+
     // --- sizing ----------------------------------------------------------
     aspectRatio: '16 / 10'      // used only when the container has no height of its own
   });
@@ -73,6 +80,32 @@ Or the no-JavaScript way — give any element `data-topo` and it mounts itself:
 ```
 
 > The URL above is pinned to commit `d703c30`, so it is permanent and served instantly. Swap the hash for a newer commit to pick up changes; `@main` also works but jsDelivr caches it for up to 24 h.
+
+## The descent
+
+`approach: true` opens on the lower 48 seen from straight above — outline, a 5° graticule, Tennessee
+picked out, the pin on the town — and descends to exactly the frame the turntable would otherwise
+open on. Progress 0 is the country, 1 is the landing frame; the tilt arrives over the second half,
+the heading swings from `approachHeading` to `startHeading`, and the lens narrows from
+`approachLens` to `lens`. Once it lands, rotation and drag take over as usual.
+
+Drive it from scroll with a tall track and a sticky stage:
+
+```html
+<section class="track" style="height:500vh;position:relative">
+  <div style="position:sticky;top:0;height:100vh">
+    <div id="topo" style="width:100%;height:100%"></div>
+  </div>
+</section>
+<script>TopoTurntable.mount('#topo', { approach: true, approachScroll: '.track' });</script>
+```
+
+…or drive it yourself: `mount()` resolves to an instance with `setProgress(t)`, a `progress`
+getter, and a `state` getter (`{progress, distance, viewWidth, tilt, heading, fov}`) for readouts.
+
+The country stage is vector only — there is no elevation baked in outside the 12-mile grid — so
+between roughly 300 km and 15 km of view width there is nothing on the ground but the graticule.
+A regional elevation layer for that band is a separate data job.
 
 ## Highways and waterways
 
