@@ -145,7 +145,7 @@
     { const G=DATA.local, ex0=G.x0, ex1=G.x0+(G.w-1)*G.cell, ey1=G.y1, ey0=G.y1-(G.h-1)*G.cell, inner=4000, outer=Math.min(18000,0.45*Math.min(ex1-ex0,ey1-ey0));
       for(let j=0;j<G.h;j++) for(let i=0;i<G.w;i++){ const x=G.x0+i*G.cell, y=G.y1-j*G.cell; const d=Math.min(x-ex0,ex1-x,y-ey0,ey1-y); const f=Math.min(1,Math.max(0,(outer-d)/(outer-inner))); if(f>0){ const r=zRegion(x,y); if(!isNaN(r)) G.z[j*G.w+i]=G.z[j*G.w+i]*(1-f)+r*f; } } }
     const zLocal=gridZ(DATA.local);
-    const zCont=gridZ(DATA.cont);
+    const CONT2=downsample(DATA.cont,2), zCont=gridZ(CONT2);   // the continental relief as drawn: 10 km cells
     { const G=DATA.region, ex0=G.x0, ex1=G.x0+(G.w-1)*G.cell, ey1=G.y1, ey0=G.y1-(G.h-1)*G.cell, inner=40000, outer=100000;
       for(let j=0;j<G.h;j++) for(let i=0;i<G.w;i++){ const x=G.x0+i*G.cell, y=G.y1-j*G.cell; const d=Math.min(x-ex0,ex1-x,y-ey0,ey1-y); const f=Math.min(1,Math.max(0,(outer-d)/(outer-inner))); if(f>0){ const r=zCont(x,y); if(!isNaN(r)) G.z[j*G.w+i]=G.z[j*G.w+i]*(1-f)+r*f; } } }
     const zRegionB=gridZ(DATA.region);
@@ -183,7 +183,12 @@
       }
     }
     ensureBox();
-    const renderer=new THREE.WebGLRenderer({antialias:true, alpha:true, logarithmicDepthBuffer:true}); renderer.setPixelRatio(Math.min(devicePixelRatio,1.5)); renderer.setClearColor(0x000000,0); host.prepend(renderer.domElement);
+    // touch devices: no MSAA and a lower pixel-ratio cap — the fill cost of a full-screen WebGL canvas at 3x is what
+    // makes mobile Safari struggle, not the geometry. A standard depth buffer throughout: the logarithmic one writes
+    // gl_FragDepth, which disables early-Z and hidden-surface removal on tile-based (Apple, Mali) GPUs. The near plane
+    // tracks the camera distance (setFrustum), so 24 bits are enough from orbit down to the county.
+    const coarse=!!(global.matchMedia && global.matchMedia('(pointer: coarse)').matches), PR_CAP=coarse?1.25:1.5;
+    const renderer=new THREE.WebGLRenderer({antialias:!coarse, alpha:true}); renderer.setPixelRatio(Math.min(devicePixelRatio||1,PR_CAP)); renderer.setClearColor(0x000000,0); host.prepend(renderer.domElement);
     const scene=new THREE.Scene(); const camera=new THREE.PerspectiveCamera(CONFIG.lens,1,10,1e9);
     const group=new THREE.Group(); scene.add(group);
     // Every contour, at every level, is drawn by this one material: one colour, one width, one depth rule. A segment
@@ -300,15 +305,20 @@
         const l=new THREE.LineSegments(g,topoMat(resIn,resOut,depthTest,gridId)); group.add(l); return l; };
       return [ make(A,true), make(B,false) ];
     }
-    const downsample=(G,f)=>{ const w=Math.floor((G.w-1)/f)+1, h=Math.floor((G.h-1)/f)+1, z=new Float32Array(w*h); for(let j=0;j<h;j++) for(let i=0;i<w;i++) z[j*w+i]=G.z[(j*f)*G.w+i*f]; return {w,h,z,cell:G.cell*f,x0:G.x0,y1:G.y1}; };
+    function downsample(G,f){ const w=Math.floor((G.w-1)/f)+1, h=Math.floor((G.h-1)/f)+1, z=new Float32Array(w*h); for(let j=0;j<h;j++) for(let i=0;i<w;i++) z[j*w+i]=G.z[(j*f)*G.w+i*f]; return {w,h,z,cell:G.cell*f,x0:G.x0,y1:G.y1,res:G.res}; }
     // ---- surfaces: an opaque relief under the lines so contours behind a ridge are hidden, not drawn through it
-    function surface(G, step, skip, gridId){
-      const cols=Math.floor((G.w-1)/step)+1, rows=Math.floor((G.h-1)/step)+1, pos=new Float32Array(cols*rows*3), idx=[];
-      for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){ const i=Math.min(G.w-1,c*step), j=Math.min(G.h-1,r*step); const x=G.x0+i*G.cell, y=G.y1-j*G.cell; const p=toWorld(x,y,G.z[j*G.w+i]); const k=(r*cols+c)*3; pos[k]=p[0]; pos[k+1]=p[1]; pos[k+2]=p[2]; }
-      for(let r=0;r<rows-1;r++) for(let c=0;c<cols-1;c++){ if(skip){ const x=G.x0+(c+0.5)*step*G.cell, y=G.y1-(r+0.5)*step*G.cell; if(skip(x,y)) continue; } const a=r*cols+c,b=a+1,d=a+cols,e=d+1; idx.push(a,d,b,b,d,e); }
+    // one tile of a relief: grid columns c0..c1 and rows r0..r1 inclusive (tiles share their boundary vertices, so no cracks)
+    function surfaceTile(G, skip, gridId, c0, c1, r0, r1){
+      const cols=c1-c0+1, rows=r1-r0+1, pos=new Float32Array(cols*rows*3), idx=[];
+      for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){ const i=c0+c, j=r0+r; const x=G.x0+i*G.cell, y=G.y1-j*G.cell; const p=toWorld(x,y,G.z[j*G.w+i]); const k=(r*cols+c)*3; pos[k]=p[0]; pos[k+1]=p[1]; pos[k+2]=p[2]; }
+      for(let r=0;r<rows-1;r++) for(let c=0;c<cols-1;c++){ if(skip){ const x=G.x0+(c0+c+0.5)*G.cell, y=G.y1-(r0+r+0.5)*G.cell; if(skip(x,y)) continue; } const a=r*cols+c,b=a+1,d=a+cols,e=d+1; idx.push(a,d,b,b,d,e); }
+      if(!idx.length) return null;
       const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(pos,3)); g.setIndex(idx); const m=new THREE.Mesh(g,surfMats[gridId||0]); group.add(m); return m;
     }
-    const L={};
+    // a relief as nx × ny tiles; three.js frustum-culls each tile on its own, so at the landing frame only the few tiles
+    // in view are drawn instead of the whole grid
+    function surface(G, nx, ny, skip, gridId){ const out=[]; for(let ty=0;ty<ny;ty++) for(let tx=0;tx<nx;tx++){ const c0=Math.floor(tx*(G.w-1)/nx), c1=Math.floor((tx+1)*(G.w-1)/nx), r0=Math.floor(ty*(G.h-1)/ny), r1=Math.floor((ty+1)*(G.h-1)/ny); if(c1>c0&&r1>r0){ const m=surfaceTile(G,skip,gridId,c0,c1,r0,r1); if(m) out.push(m); } } return out; }
+    const L={}; let renderKey='', renderBump=0;   // the frame loop renders only when this key changes
     // Three reliefs, nested, each the ground wherever it is the finest one there: the continental (5 km cells) has a
     // hole where the regional (1 km) is, the regional a hole where the fine (200 m) is, and each hole's edge lies in
     // the coarser grid's blended margin, so the two surfaces meet within a few metres, in one colour. The contours
@@ -318,16 +328,16 @@
     const regCore=inGrid(DATA.region,5000);
     const inLocalCore=(x,y)=>{ const G=DATA.local, m=1500; return x>=G.x0+m&&x<=G.x0+(G.w-1)*G.cell-m&&y<=G.y1-m&&y>=G.y1-(G.h-1)*G.cell+m; };
     const localHand=(x,y)=>inLocal(x,y)?1-edgeFade(x,y):0;        // the regional lines' hand-over zone: the fine grid, less its blended margin
-    L.contSurf   = surface(DATA.cont, 1, regCore, 0);
-    L.regionSurf = surface(DATA.region, 1, inLocalCore, 1);
+    L.contSurf   = surface(CONT2, 8, 5, regCore, 0);
+    L.regionSurf = surface(DATA.region, 6, 5, inLocalCore, 1);
     // no contours at continental scale: from orbit the map is outlines, water and graticule, and the topo belongs to
     // the destination — it is cut from the regional grid (25 m and its nested coarser sets) and the county grid (12.5 m)
     let slopeR=null, gRep=0.03;   // gRep: the region's typical slope within the county's radius; every set is judged against it
-    const buildRegion=()=>{ slopeR=slopeField(DATA.region,2);
+    const buildRegion=()=>{ renderBump++; slopeR=slopeField(DATA.region,2);
       { const G=DATA.region, r=(CONFIG.localRadius||110)*1000, v=[]; for(let j=0;j<G.h;j+=2) for(let i=0;i<G.w;i+=2){ const x=G.x0+i*G.cell, y=G.y1-j*G.cell; if(x*x+y*y<r*r) v.push(slopeR(x,y)); } v.sort((a,b)=>a-b); if(v.length) gRep=Math.max(0.003,v[v.length>>1]); }
       [L.region, L.regionIn] = contours(DATA.region, CONFIG.regionInterval, 4, regionFade, localHand, inLocalCore, slopeR, REGION.res, LOCAL.res, 1); };
-    const buildLocal=()=>{
-      L.localSurf = surface(DATA.local, 1, null, 2);
+    const buildLocal=()=>{ renderBump++;
+      L.localSurf = surface(DATA.local, 3, 3, null, 2);
       const slopeL=slopeField(DATA.local,4); [L.local] = contours(DATA.local, CONFIG.localInterval, 1.0, edgeFade, null, null, slopeL, LOCAL.res, 0, 2);
       recolourFaded();
     };
@@ -338,7 +348,7 @@
     // would otherwise cut through every hill between them and come out dotted
     // onGround: false = on the sea-level sphere; true = on the finest relief, 150 m steps; 'cont' = on the continental
     // relief's own triangles at 1 km steps where the line crosses that grid (the graticule: it must not sink under the land)
-    const drapeLL=(rings,mat,lift,onGround,fade)=>{ const arr=[], fad=[]; const zc=triZ(DATA.cont), inCont=inGrid(DATA.cont,0), inReg=inGrid(DATA.region,0);
+    const drapeLL=(rings,mat,lift,onGround,fade)=>{ const arr=[], fad=[]; const zc=triZ(CONT2), inCont=inGrid(CONT2,0), inReg=inGrid(DATA.region,0);
       const hAt=onGround==='cont' ? (x,y)=>{ const h=zc(x,y); return isNaN(h)?0:h; } : heightAt;
       // sample spacing under a segment: the finest grid it crosses sets it (150 m on the fine grid, 500 m regional, 2 km continental)
       const stepFor=(a,b)=>{ if(!onGround) return 0; const m=[(a[0]+b[0])/2,(a[1]+b[1])/2], pts=[a,b,m]; const any=f=>pts.some(p=>f(p[0],p[1]));
@@ -348,9 +358,9 @@
       return segs(arr,mat,fade?fad:null); };
     const dq=(rings,f)=>rings.map(r=>r.map(([a,b])=>[a/f,b/f]));
     L.globe = drapeLL(dq(DATA.lines.globe,100), globeMat, 0, false);
-    L.na    = drapeLL(dq(DATA.lines.na,100),    naMat,  40, true);
-    L.states= DATA.lines.states ? drapeLL(dq(DATA.lines.states,100), stateMat, 40, true) : null;   // on whichever relief is finest there, so they survive to the landing frame
-    { const g=[]; for(let lon=-180;lon<180;lon+=15){ const r=[]; for(let lat=-90;lat<=90;lat+=2) r.push([lon,lat]); g.push(r); } for(let lat=-75;lat<=75;lat+=15){ const r=[]; for(let lon=-180;lon<=180;lon+=2) r.push([lon,lat]); g.push(r); } L.grat=drapeLL(g,gratMat,60,'cont'); }
+    L.na    = drapeLL(dq(DATA.lines.na,100),    naMat,  80, true);
+    L.states= DATA.lines.states ? drapeLL(dq(DATA.lines.states,100), stateMat, 80, true) : null;   // on whichever relief is finest there, so they survive to the landing frame
+    { const g=[]; for(let lon=-180;lon<180;lon+=15){ const r=[]; for(let lat=-90;lat<=90;lat+=2) r.push([lon,lat]); g.push(r); } for(let lat=-75;lat<=75;lat+=15){ const r=[]; for(let lon=-180;lon<=180;lon+=2) r.push([lon,lat]); g.push(r); } L.grat=drapeLL(g,gratMat,150,'cont'); }
     // the county line, draped on the fine relief and lifted clear of the contours
     L.county = CONFIG.county ? drapeLL([countyLL],countyMat,12,true,null) : null;
     // highways and rivers (local metres), draped
@@ -380,14 +390,14 @@
       const w=host.clientWidth,h=host.clientHeight;
       if(!w||!h){ pendingFit=true; return; }
       pendingFit=false;
-      const pr=Math.min(devicePixelRatio||1,1.5); if(pr!==renderer.getPixelRatio()) renderer.setPixelRatio(pr);
+      const pr=Math.min(devicePixelRatio||1,PR_CAP); if(pr!==renderer.getPixelRatio()) renderer.setPixelRatio(pr);
       renderer.setSize(w,h,false); camera.aspect=w/h;
       dist=R*3; pol=polFinal(); pivot.copy(pivotHome); camera.fov=CONFIG.lens; camera.updateProjectionMatrix();
       const margin=1/(CONFIG.fitMargin||1.1);
       const measure=()=>{ let minX=1e9,maxX=-1e9,minY=1e9,maxY=-1e9; for(let k=0;k<24;k++){ placeCam(k/24*Math.PI*2); for(const p of fitPts){ const q=p.clone().project(camera); if(q.x<minX)minX=q.x; if(q.x>maxX)maxX=q.x; if(q.y<minY)minY=q.y; if(q.y>maxY)maxY=q.y; } } return {minX,maxX,minY,maxY}; };
       for(let i=0;i<4;i++){ const b=measure(); const ext=Math.max((b.maxX-b.minX)/2,(b.maxY-b.minY)/2)/margin; if(ext>0) dist*=ext; }
       const b=measure(); const cy=(b.minY+b.maxY)/2; pivot.y += cy*dist*Math.tan(camera.fov*Math.PI/360)*0.9; pivotHome.copy(pivot);
-      fitDist=dist; setFrustum();
+      fitDist=dist; setFrustum(); renderBump++;
       if(AP) applyApproach(); else placeCam(az);
     }
     function setFrustum(){ camera.near=Math.max(1,dist*0.02); camera.far=dist*6+RE*3; camera.updateProjectionMatrix(); }
@@ -481,6 +491,8 @@
         if(CONFIG.rotateSeconds>0 && !reduced && !dragging && now-lastPointer>1500) spin+=dt*Math.PI*2/CONFIG.rotateSeconds;
         az=azHome()+spin; placeCam(az);
       }
+      const key=[AP?AP.t:1, az, pol, dist, camera.fov, host.clientWidth, host.clientHeight, renderBump, lastColors].join('|');
+      if(key===renderKey) return; renderKey=key;
       lastVw=layerFade();
       renderer.render(scene,camera);
       for(const l of labels){ const p=l.world.clone().project(camera); const a=p.z>1?0:l.fade(lastVw); l.el.style.opacity=a; if(l.text) l.el.firstChild.style.opacity=l.text(lastVw); l.el.style.left=((p.x+1)/2*host.clientWidth)+'px'; l.el.style.top=((1-p.y)/2*host.clientHeight)+'px'; }
@@ -490,7 +502,7 @@
     return { destroy(){ alive=false; io.disconnect(); if(ro) ro.disconnect(); removeEventListener('resize',requestFit); clearInterval(themeWatch); renderer.dispose(); renderer.domElement.remove(); for(const l of labels) l.el.remove(); },
       setAzimuth(a){ spin=a-azHome(); }, get azimuth(){ return az; },
       // change settings in place; geometry options (intervals, roads, water, county) still need a fresh mount
-      set(patch){ Object.assign(CONFIG, patch||{}); for(const k of COLOR_KEYS) if(patch&&k in patch){ RAWCOLORS[k]=patch[k]; lastColors=''; } if(patch && ('tilt' in patch || 'lens' in patch || 'fitMargin' in patch || 'labelHeight' in patch)) requestFit(); },
+      set(patch){ renderBump++; Object.assign(CONFIG, patch||{}); for(const k of COLOR_KEYS) if(patch&&k in patch){ RAWCOLORS[k]=patch[k]; lastColors=''; } if(patch && ('tilt' in patch || 'lens' in patch || 'fitMargin' in patch || 'labelHeight' in patch)) requestFit(); },
       setProgress(t){ if(AP) AP.target=Math.min(1,Math.max(0,+t||0)); }, get progress(){ return AP?AP.t:1; },
       get state(){ return { progress: AP?AP.t:1, distance: dist, viewWidth: 2*dist*Math.tan(camera.fov*Math.PI/360)*camera.aspect, tilt: 90-pol*180/Math.PI, heading: -az*180/Math.PI, fov: camera.fov }; } };
   }
