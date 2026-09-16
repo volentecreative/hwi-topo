@@ -23,7 +23,7 @@
   const DEFAULTS = {
     "exaggeration": 2,
     "rotateSeconds": 120,
-    "startHeading": 140.5,
+    "startHeading": 0,
     "tilt": 31,
     "lens": 8,
     "fitMargin": 1.1,

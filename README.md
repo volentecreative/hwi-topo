@@ -29,7 +29,7 @@ to the value shown here.
     // --- camera ----------------------------------------------------------
     tilt:          31,          // degrees above the horizon; 90 = straight down, 0 = eye level
     lens:          8,           // field of view; lower = flatter and more isometric
-    startHeading:  140.5,       // which way it faces on load, in degrees
+    startHeading:  0,           // which way it faces, in degrees; 0 = north up, held all the way down
     rotateSeconds: 120,         // seconds per full turn; 0 = hold still
     fitMargin:     1.1,         // breathing room around the county; 1 = edge to edge, higher = more padding
     dragToOrbit:   false,       // let visitors drag to spin it; auto-rotation resumes afterwards
