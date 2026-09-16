@@ -1,9 +1,9 @@
 # Jackson County topo turntable
 
 Jackson County, Tennessee, in contour lines on a slowly turning stage — and, with `approach: true`, a
-scroll-driven descent to it from the whole Earth. Real terrain (1-arc-second SRTM over the county,
-Terrain Tiles at 1 km for the region around it), Census county and state lines, Natural Earth
-countries. One script plus a `data/` folder, no build step, embeds anywhere.
+scroll-driven descent to it from the whole Earth. Real terrain at three levels (1-arc-second SRTM
+over the county, Terrain Tiles at 1 km for the region and 5 km for the continent), the Census county
+line, Natural Earth countries. One script plus a `data/` folder, no build step, embeds anywhere.
 
 **Live demo:** open `index.html`, or after enabling GitHub Pages: `https://volentecreative.github.io/hwi-topo/`
 
@@ -21,7 +21,8 @@ to the value shown here.
     // --- terrain ---------------------------------------------------------
     exaggeration:   2,          // vertical exaggeration; 1 = true scale, higher = more dramatic relief
     localInterval:  25,         // metres between contour lines at county scale
-    regionInterval: 100,        // metres between contour lines on the way in (the 1 km grid, 600 x 500 km)
+    regionInterval: 50,         // on the way in, over the 1 km grid (600 x 500 km); its index lines match contInterval
+    contInterval:   100,        // seen from the continent's height, over the 5 km grid; regionInterval's index lines match this
     county:         true,       // draw the county line, draped on the relief
 
     // --- camera ----------------------------------------------------------
@@ -80,10 +81,10 @@ Or the no-JavaScript way — give any element `data-topo` and it mounts itself:
 
 `approach: true` opens on the whole Earth, the county facing you, and descends to the frame the
 turntable would otherwise open on. Progress 0 is the globe, 1 is the landing frame. On the way:
-the country outlines and a 15° graticule hold until about 1,600 km across; state lines and North
-America in more detail from 250 km; regional relief contours (the 1 km grid, 600 × 500 km) from
-about 1,600 km down to 45 km; the county-scale contours, the county line and any roads and rivers
-from 140 km in. The look-at point travels from the Earth's centre to the county over the first half,
+the country outlines and a 15° graticule hold until about 1,600 km across, North America in more
+detail until 100 km; continental relief contours from about 3,500 km down to 300 km; regional
+contours from 500 km down to 90 km; the county-scale contours, the county line and any roads and
+rivers from 150 km in. The look-at point travels from the Earth's centre to the county over the first half,
 the tilt arrives over the second half, the heading swings from `approachHeading` to `startHeading`,
 and the lens narrows from `approachLens` to `lens`. Once it lands, rotation and drag take over.
 
@@ -108,26 +109,31 @@ and state lines, the regional relief, the county-scale relief and the lines drap
 scale the sphere is flat to the eye; at continental scale the curvature is real. That is what lets
 the descent be one continuous camera move rather than a flat map stitched to a globe.
 
-The fine terrain (`data/local.png`) is 1-arc-second SRTM resampled to 100 m over the county and about
-22 km around it, smoothed so the contours read as landform. The regional terrain (`data/region.png`)
-is 1 km over 600 × 500 km, from the same source at zoom 9. Both are 8-bit PNGs of heights; the
-metadata that turns a pixel into metres is baked into the script.
+Terrain comes at three levels, all from the same source family: `data/local.png` is 1-arc-second
+SRTM resampled to 200 m over the county and about 22 km around it; `data/region.png` is Terrain
+Tiles at 1 km over 600 × 500 km; `data/cont.png` is the same at 5 km over 5,800 × 3,300 km. Each is
+Gaussian-smoothed so its contours read as landform, and stored as a 16-bit PNG of heights (R the
+high byte, G the low) quantised to 0.25 / 0.5 / 1 m — 8 bits terraced gentle slopes into staircases
+that every contour then hugged. The metadata that turns a pixel into metres is baked into the script.
 
-The two are made one ground at mount: across the fine grid's outer 14 km the fine heights blend
-toward the regional ones, and inside the fine extent the regional grid is resampled from the fine
-one, so there is no step where one ends and the other begins. Each is drawn as an opaque relief
-under its lines — a contour behind a ridge is hidden rather than drawn through it — and the
-contours are cut on the relief's own triangles (marching triangles, not squares), so a line can
-never fall below the surface it sits on and come out dashed. The fine layer's lines also fade out
-toward the grid's edge rather than ending in a square. It is three levels of detail with
-crossfades between them: the globe and its outlines, the regional relief, the county relief; each
-is hidden once faded, and the county geometry is cut after the first frame so the globe is on
-screen while it happens. Pixel ratio is capped at 1.5, which is all 1-px lines need and roughly
-halves the fragment load on a 3× phone.
+Only one of the three is the ground at any moment: the continental relief from orbit down to about
+300 km across, the regional relief from there to about 90 km, the fine relief below that. Each is
+drawn opaque under its lines, so a contour behind a ridge is hidden rather than drawn through it, and
+each coarser relief keeps a small overlap under the next, in the same colour, so no seam can show.
+The contours are cut on the relief's own triangles (marching triangles, not squares), so a line can
+never fall below the surface it sits on and come out dashed.
 
-One thing that looks like a mistake and isn't: at a few hundred kilometres across, a straight
-line runs past the county. It is the Kentucky state line — Tennessee's north and south borders
-are lines of latitude, 27 km north of Gainesboro and 178 km apart — and it fades out below 100 km.
+A finer level never arrives as a new layer. Its index lines are cut at the coarser level's interval
+— the regional index is every 100 m like the continental lines, the fine index every 50 m like the
+regional ones — and those fade in first, over the coarser lines, which fade out; only once they are
+fully in does the finer relief become the ground and the intermediate contours fill in. During that
+crossfade the finer lines are drawn without depth testing, so neither surface can dash them. Each
+grid's outer margin is blended toward the next coarser field and its lines fade out toward the edge,
+so no level ends where its data does. The county line, the pin and the country outlines persist
+across every level. The county geometry is cut after the first frame, so the globe is on screen
+while it happens, and the pixel ratio is capped at 1.5.
+
+There are no state lines; where they were, the continental relief is.
 
 ## Styling the label with your own classes
 
@@ -169,6 +175,6 @@ metres about 36.35972, −85.65472 and densified to ~80 m. Until then they are o
 
 ## Notes
 
-- ~70 KB script; `data/` is ~450 KB (local.png 167 KB, region.png 69 KB, lines.json 218 KB, ~60 KB gzipped). three.js r128 loads from cdnjs automatically if the page doesn't already have `THREE`.
+- ~75 KB script; `data/` is ~1.1 MB (cont.png 476 KB, region.png 274 KB, local.png 153 KB, lines.json 164 KB, ~120 KB gzipped) — the PNGs are already compressed. The globe is on screen as soon as the script and `cont.png` are in; the rest is cut after the first frame. three.js r128 loads from cdnjs automatically if the page doesn't already have `THREE`.
 - Pauses rendering when scrolled out of view; honours `prefers-reduced-motion` (stays still, and the descent follows the scroll without damping).
-- Terrain: SRTM 1-arc-second (NASA) and Terrain Tiles (Mapzen / AWS Open Data). County: Census cartographic boundary, 1:500k. States: Census 1:10M. Countries: Natural Earth 1:110M world, 1:50M North America. The county outline follows the river; the elevation is the true large-scale shape of the terrain, not survey-grade detail.
+- Terrain: SRTM 1-arc-second (NASA) and Terrain Tiles (Mapzen / AWS Open Data). County: Census cartographic boundary, 1:500k. Countries: Natural Earth 1:110M world, 1:50M North America. The county outline follows the river; the elevation is the true large-scale shape of the terrain, not survey-grade detail.
