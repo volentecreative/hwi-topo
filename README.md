@@ -65,7 +65,7 @@ to the value shown here.
     waterColor:    'var(--topo-water, var(--water, #3f6063))',
 
     // --- labels ----------------------------------------------------------
-    label:       'Gainesboro',  // the anchor town: a pin at the origin; '' hides it
+    label:       'Gainesboro',  // the anchor town: a dot at the origin from orbit, its name from ~130 km; '' hides it
     towns: [{name:'Whitleyville',lon:-85.6719,lat:36.4453},{name:'Mayfield',lon:-85.6149,lat:36.2454}],  // reference towns, pinned, in from ~130 km
     countyLabel: 'Jackson County',   // the regional label, no pin, in the county's southern third; '' hides it
     countyLabelClass: '',       // style it with your own classes (see below)
@@ -112,9 +112,9 @@ Or the no-JavaScript way — give any element `data-topo` and it mounts itself:
 `approach: true` opens on the whole Earth, the county facing you, and descends to the frame the
 turntable would otherwise open on. Progress 0 is the globe, 1 is the landing frame. From orbit the map
 is outlines only: the country outlines and a 15° graticule, the state lines (which stay, muted, all the
-way down), North America in more detail until 100 km, the county line and the county name once its
-shape can be read (from about 700 km), the reference towns from about 130 km, roads and rivers from
-90 km. There is no topo at those scales. The contours begin to resolve, quietly and broadly around the
+way down), North America in more detail until 100 km. The county is a dot from orbit; its outline and
+the name "Jackson County" come in about halfway down (2,000 → 1,200 km across), the town names —
+Gainesboro's included — from about 130 km, roads and rivers from 90 km. There is no topo at those scales. The contours begin to resolve, quietly and broadly around the
 county, from `revealStart` (550 km) and are fully there by `revealFull` (120 km) — see "How the world
 is built".
 

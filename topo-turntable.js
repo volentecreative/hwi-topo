@@ -96,7 +96,7 @@
   const THREE_URL = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
   let threeReady = null;
   function loadThree(){ if(global.THREE) return Promise.resolve(); if(threeReady) return threeReady; threeReady = new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=THREE_URL; s.onload=res; s.onerror=()=>rej(new Error('three.js failed to load')); document.head.appendChild(s); }); return threeReady; }
-  function injectCSS(){ if(document.getElementById('topo-turntable-css')) return; const st=document.createElement('style'); st.id='topo-turntable-css'; st.textContent='.topo-turntable{position:relative}.topo-turntable canvas{position:absolute;top:0;left:0;display:block;width:100%;height:100%}.topo-turntable .topo-label{position:absolute;transform:translate(-50%,-100%);white-space:nowrap;pointer-events:none;user-select:none}:where(.topo-turntable .topo-label){padding:0 0 6px 0;letter-spacing:.01em}.topo-turntable .topo-label::before{content:"";position:absolute;left:50%;bottom:0;width:6px;height:6px;transform:translate(-50%,50%);background:currentColor}:where(.topo-turntable .topo-label--county){letter-spacing:.16em;text-transform:uppercase;font-size:.85em;padding:0}.topo-turntable .topo-label--county{transform:translate(-50%,-50%)}.topo-turntable .topo-label--county::before{display:none}'; document.head.appendChild(st); }
+  function injectCSS(){ if(document.getElementById('topo-turntable-css')) return; const st=document.createElement('style'); st.id='topo-turntable-css'; st.textContent='.topo-turntable{position:relative}.topo-turntable canvas{position:absolute;top:0;left:0;display:block;width:100%;height:100%}.topo-turntable .topo-label{position:absolute;transform:translate(-50%,-100%);white-space:nowrap;pointer-events:none;user-select:none}:where(.topo-turntable .topo-label){padding:0 0 6px 0;letter-spacing:.01em}.topo-turntable .topo-label::before{content:"";position:absolute;left:50%;bottom:0;width:6px;height:6px;transform:translate(-50%,50%);background:currentColor}:where(.topo-turntable .topo-label--county){letter-spacing:.16em;text-transform:uppercase;font-size:.85em;padding:.7em 0 0 0}.topo-turntable .topo-label--county{transform:translate(-50%,0)}.topo-turntable .topo-label--county::before{display:none}'; document.head.appendChild(st); }
 
   // ---- data: an 8-bit PNG is a grid of heights (lo + value * step); lines.json is quantised lon/lat rings
   // a grid is a PNG of 16-bit heights, R the high byte and G the low: lo + value * step
@@ -165,7 +165,7 @@
     // ---- scene
     // labels: the county name (primary colour, no pin) and the towns (secondary colour, a pin each); the first town is the anchor
     const labels=[];   // {el, kind, world:Vector3, fade}
-    const mkLabel=(text,kind,cls)=>{ const el=document.createElement('div'); el.className='topo-label'+(kind==='county'?' topo-label--county':'')+(cls?' '+cls:''); el.textContent=text; host.appendChild(el); return el; };
+    const mkLabel=(text,kind,cls)=>{ const el=document.createElement('div'); el.className='topo-label'+(kind==='county'?' topo-label--county':'')+(cls?' '+cls:''); const sp=document.createElement('span'); sp.textContent=text; el.appendChild(sp); host.appendChild(el); return el; };
     const labelEl=CONFIG.label ? mkLabel(CONFIG.label,'town',CONFIG.labelClass) : null;
     const labelStyled=!!CONFIG.labelClass, countyStyled=!!CONFIG.countyLabelClass;
     host.style.background=CONFIG.background; if(getComputedStyle(host).position==='static') host.style.position='relative'; host.style.overflow='hidden';
@@ -361,12 +361,12 @@
     let pinTop=0, pinMat=null, pinWorld=null;
     const pinAt=(x,y,h)=>{ const h0=heightAt(x,y), top=h0+h; const a=toWorld(x,y,h0), b=toWorld(x,y,top); group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a),new THREE.Vector3(...b)]),pinMat)); return new THREE.Vector3(...b); };
     if(CONFIG.label || (CONFIG.towns&&CONFIG.towns.length)) pinMat=new THREE.LineBasicMaterial({color:CONFIG.labelSecondaryColor});
-    if(CONFIG.label){ pinTop=heightAt(0,0)+R*CONFIG.labelHeight/EX; pinWorld=pinAt(0,0,R*CONFIG.labelHeight/EX); labels.push({el:labelEl, kind:'town', world:pinWorld, fade:()=>1}); }
+    if(CONFIG.label){ pinTop=heightAt(0,0)+R*CONFIG.labelHeight/EX; pinWorld=pinAt(0,0,R*CONFIG.labelHeight/EX); labels.push({el:labelEl, kind:'town', world:pinWorld, fade:()=>1, text:(vw)=>1-smooth(8e4,1.3e5,vw)}); }
     for(const t of (CONFIG.towns||[])){ if(!t||!t.name) continue; const [x,y]=llToXY(+t.lon,+t.lat); if(!inLocal(x,y)) continue;
       labels.push({el:mkLabel(t.name,'town',CONFIG.labelClass), kind:'town', world:pinAt(x,y,R*CONFIG.labelHeight*0.55/EX), fade:(vw)=>1-smooth(8e4,1.3e5,vw)}); }
     // the county name sits in the county's southern third, clear of the anchor, and reads from the moment the county line does
     if(CONFIG.countyLabel){ const x=CX, y=cy0+0.28*(cy1-cy0); const p=toWorld(x,y,heightAt(x,y)+R*0.06/EX);
-      labels.push({el:mkLabel(CONFIG.countyLabel,'county',CONFIG.countyLabelClass), kind:'county', world:new THREE.Vector3(...p), fade:(vw)=>1-smooth(4e5,7e5,vw)}); }
+      labels.push({el:mkLabel(CONFIG.countyLabel,'county',CONFIG.countyLabelClass), kind:'county', world:new THREE.Vector3(...p), fade:(vw)=>1-smooth(1.2e6,2.0e6,vw)}); }
     if(!labelStyled) for(const l of labels) if(l.kind==='town') l.el.style.color=CONFIG.labelSecondaryColor;
     if(!countyStyled) for(const l of labels) if(l.kind==='county') l.el.style.color=CONFIG.labelColor;
     // ---- camera + fit: frame the county's box, over a full turn, so nothing clips as it rotates
@@ -399,7 +399,7 @@
       const kmOut=(hi,lo)=>smooth(lo,hi,vw), kmIn=(hi,lo)=>1-smooth(lo,hi,vw);   // fade as the view narrows (in) or widens (out)
       const globe=kmOut(1.6e6,6e5), grat=kmOut(5e5,2.5e5), naA=kmOut(2.5e5,1.0e5), states=1;   // state lines stay: they are context at every scale
       const near=kmIn(1.5e5,9e4), fine=kmIn(9e4,5.5e4);
-      const county=kmIn(7e5,4e5);   // once the county's shape can be read, not before
+      const county=kmIn(2.0e6,1.2e6);   // the county line, from about halfway down: a small ring round the dot at first
       set(L.globe,0.9,globe); set(L.grat,0.6,grat); set(L.na,0.85,naA); set(L.states,0.8,states);
       set(L.county,1,county); set(L.roads,0.85,fine); set(L.water,0.95,fine);
       // the contours (see topoMat): pixels per metre at the anchor, discounted a little for the tilt's foreshortening
@@ -483,7 +483,7 @@
       }
       lastVw=layerFade();
       renderer.render(scene,camera);
-      for(const l of labels){ const p=l.world.clone().project(camera); const a=p.z>1?0:l.fade(lastVw); l.el.style.opacity=a; l.el.style.left=((p.x+1)/2*host.clientWidth)+'px'; l.el.style.top=((1-p.y)/2*host.clientHeight)+'px'; }
+      for(const l of labels){ const p=l.world.clone().project(camera); const a=p.z>1?0:l.fade(lastVw); l.el.style.opacity=a; if(l.text) l.el.firstChild.style.opacity=l.text(lastVw); l.el.style.left=((p.x+1)/2*host.clientWidth)+'px'; l.el.style.top=((1-p.y)/2*host.clientHeight)+'px'; }
     }
     requestAnimationFrame(frame);
     requestAnimationFrame(()=>setTimeout(()=>{ if(!alive) return; buildRegion(); setTimeout(()=>{ if(alive) buildLocal(); },0); },0));
