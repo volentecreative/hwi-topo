@@ -109,11 +109,25 @@ scale the sphere is flat to the eye; at continental scale the curvature is real.
 the descent be one continuous camera move rather than a flat map stitched to a globe.
 
 The fine terrain (`data/local.png`) is 1-arc-second SRTM resampled to 100 m over the county and about
-22 km around it, smoothed so the contours read as landform. It is drawn as an opaque relief under the
-lines — so a contour behind a ridge is hidden rather than drawn through it — and its lines fade out
-toward the grid's edge, over the regional relief, instead of ending in a square. The regional terrain
-(`data/region.png`) is 1 km over 600 × 500 km, from the same source at zoom 9. Both are 8-bit PNGs of
-heights; the metadata that turns a pixel into metres is baked into the script.
+22 km around it, smoothed so the contours read as landform. The regional terrain (`data/region.png`)
+is 1 km over 600 × 500 km, from the same source at zoom 9. Both are 8-bit PNGs of heights; the
+metadata that turns a pixel into metres is baked into the script.
+
+The two are made one ground at mount: across the fine grid's outer 14 km the fine heights blend
+toward the regional ones, and inside the fine extent the regional grid is resampled from the fine
+one, so there is no step where one ends and the other begins. Each is drawn as an opaque relief
+under its lines — a contour behind a ridge is hidden rather than drawn through it — and the
+contours are cut on the relief's own triangles (marching triangles, not squares), so a line can
+never fall below the surface it sits on and come out dashed. The fine layer's lines also fade out
+toward the grid's edge rather than ending in a square. It is three levels of detail with
+crossfades between them: the globe and its outlines, the regional relief, the county relief; each
+is hidden once faded, and the county geometry is cut after the first frame so the globe is on
+screen while it happens. Pixel ratio is capped at 1.5, which is all 1-px lines need and roughly
+halves the fragment load on a 3× phone.
+
+One thing that looks like a mistake and isn't: at a few hundred kilometres across, a straight
+line runs past the county. It is the Kentucky state line — Tennessee's north and south borders
+are lines of latitude, 27 km north of Gainesboro and 178 km apart — and it fades out below 100 km.
 
 ## Styling the label with your own classes
 

@@ -107,7 +107,12 @@
     function llToXY(lon,lat){ return [ (lon-LON0)*111320*Math.cos(lat*D2R), (lat-ORIGIN.lat)*110900 ]; }
     // heights: the fine grid where it exists, the regional grid beyond it, sea level beyond that
     const gridZ=(G)=>(x,y)=>{ const gx=(x-G.x0)/G.cell, gy=(G.y1-y)/G.cell; if(gx<0||gy<0||gx>G.w-1||gy>G.h-1) return NaN; const i=Math.min(G.w-2,Math.floor(gx)), j=Math.min(G.h-2,Math.floor(gy)), fx=gx-i, fy=gy-j; const z=G.z, a=z[j*G.w+i], b=z[j*G.w+i+1], c=z[(j+1)*G.w+i], d=z[(j+1)*G.w+i+1]; return (a*(1-fx)+b*fx)*(1-fy)+(c*(1-fx)+d*fx)*fy; };
-    const zLocal=gridZ(DATA.local), zRegion=gridZ(DATA.region);
+    // the fine grid's outer margin blends toward the coarse field, so where the two reliefs overlap they agree;
+    // the coarse grid itself is left alone, so its contours keep one character whether or not the fine grid is under them
+    const zRegion=gridZ(DATA.region);
+    { const G=DATA.local, ex0=G.x0, ex1=G.x0+(G.w-1)*G.cell, ey1=G.y1, ey0=G.y1-(G.h-1)*G.cell, inner=4000, outer=Math.min(18000,0.45*Math.min(ex1-ex0,ey1-ey0));
+      for(let j=0;j<G.h;j++) for(let i=0;i<G.w;i++){ const x=G.x0+i*G.cell, y=G.y1-j*G.cell; const d=Math.min(x-ex0,ex1-x,y-ey0,ey1-y); const f=Math.min(1,Math.max(0,(outer-d)/(outer-inner))); if(f>0){ const r=zRegion(x,y); if(!isNaN(r)) G.z[j*G.w+i]=G.z[j*G.w+i]*(1-f)+r*f; } } }
+    const zLocal=gridZ(DATA.local);
     const heightAt=(x,y)=>{ let h=zLocal(x,y); if(isNaN(h)) h=zRegion(x,y); return isNaN(h)?0:h; };
     const inLocal=(x,y)=>x>=DATA.local.x0&&x<=DATA.local.x0+(DATA.local.w-1)*DATA.local.cell&&y<=DATA.local.y1&&y>=DATA.local.y1-(DATA.local.h-1)*DATA.local.cell;
 
@@ -136,7 +141,7 @@
       }
     }
     ensureBox();
-    const renderer=new THREE.WebGLRenderer({antialias:true, alpha:true, logarithmicDepthBuffer:true}); renderer.setPixelRatio(Math.min(devicePixelRatio,2)); renderer.setClearColor(0x000000,0); host.prepend(renderer.domElement);
+    const renderer=new THREE.WebGLRenderer({antialias:true, alpha:true, logarithmicDepthBuffer:true}); renderer.setPixelRatio(Math.min(devicePixelRatio,1.5)); renderer.setClearColor(0x000000,0); host.prepend(renderer.domElement);
     const scene=new THREE.Scene(); const camera=new THREE.PerspectiveCamera(CONFIG.lens,1,10,1e9);
     const group=new THREE.Group(); scene.add(group);
     const lineMat=new THREE.LineBasicMaterial({color:CONFIG.lineColor,transparent:true,opacity:CONFIG.lineOpacity??0.75}), indexMat=new THREE.LineBasicMaterial({color:CONFIG.indexLineColor,transparent:true,opacity:1});
@@ -155,21 +160,24 @@
     const edgeFade=(x,y)=>{ const G=DATA.local; const ex0=G.x0, ex1=G.x0+(G.w-1)*G.cell, ey1=G.y1, ey0=G.y1-(G.h-1)*G.cell; const d=Math.min(x-ex0,ex1-x,y-ey0,ey1-y); const inner=4000, outer=Math.min(18000,0.45*Math.min(ex1-ex0,ey1-ey0)); return Math.min(1,Math.max(0,(outer-d)/(outer-inner))); };
     const strip=(pts3,mat)=>{ const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.Float32BufferAttribute(pts3.flat(),3)); const o=new THREE.Line(g,mat); group.add(o); return o; };
 
-    // ---- contours: marching squares straight to line segments, each end lifted onto the sphere at its level
-    function contours(G, interval, indexEvery, matNormal, matIndex, lift, fade){
+    // ---- contours: marching triangles on exactly the triangles the relief is built from (a-d-b, b-d-c per cell),
+    // so every line lies on the surface it is drawn over and a lift of a metre keeps it clear
+    function contours(G, interval, indexEvery, matNormal, matIndex, lift, fade, skip){
       const out={normal:[],index:[]}, fd={normal:[],index:[]}; const {w,h,z}=G; let lo=1e9,hi=-1e9; for(const v of z){ if(v<lo)lo=v; if(v>hi)hi=v; }
+      const X=(i)=>G.x0+i*G.cell, Y=(j)=>G.y1-j*G.cell;
       for(let lv=Math.ceil(lo/interval)*interval; lv<hi; lv+=interval){
         const isIdx=(Math.round(lv/interval)%indexEvery===0), arr = isIdx ? out.index : out.normal, farr = isIdx ? fd.index : fd.normal;
-        const X=(i)=>G.x0+i*G.cell, Y=(j)=>G.y1-j*G.cell;
-        for(let j=0;j<h-1;j++){ const r0=j*w, r1=(j+1)*w;
+        const push=(p,q)=>{ const P=toWorld(p[0],p[1],lv+lift), Q=toWorld(q[0],q[1],lv+lift); arr.push(P[0],P[1],P[2],Q[0],Q[1],Q[2]); if(fade) farr.push(fade(p[0],p[1]),fade(q[0],q[1])); };
+        const cross=(x0,y0,h0,x1,y1,h1)=>{ const t=(lv-h0)/(h1-h0); return [x0+(x1-x0)*t, y0+(y1-y0)*t]; };
+        const tri=(x0,y0,h0,x1,y1,h1,x2,y2,h2)=>{ const s0=h0>=lv,s1=h1>=lv,s2=h2>=lv; if(s0===s1&&s1===s2) return;
+          if(s0!==s1&&s1!==s2) push(cross(x0,y0,h0,x1,y1,h1),cross(x1,y1,h1,x2,y2,h2));
+          else if(s1!==s2&&s2!==s0) push(cross(x1,y1,h1,x2,y2,h2),cross(x2,y2,h2,x0,y0,h0));
+          else push(cross(x2,y2,h2,x0,y0,h0),cross(x0,y0,h0,x1,y1,h1)); };
+        for(let j=0;j<h-1;j++){ const r0=j*w, r1=(j+1)*w, y0=Y(j), y1=Y(j+1);
           for(let i=0;i<w-1;i++){
-            const a=z[r0+i],b=z[r0+i+1],c=z[r1+i+1],d=z[r1+i];
-            const code=(a>=lv?8:0)|(b>=lv?4:0)|(c>=lv?2:0)|(d>=lv?1:0); if(code===0||code===15) continue;
-            const x0=X(i),x1=X(i+1),y0=Y(j),y1=Y(j+1);
-            const top=()=>[x0+(x1-x0)*(lv-a)/(b-a),y0], right=()=>[x1,y0+(y1-y0)*(lv-b)/(c-b)], bottom=()=>[x0+(x1-x0)*(lv-d)/(c-d),y1], left=()=>[x0,y0+(y1-y0)*(lv-a)/(d-a)];
-            const push=(p,q)=>{ const P=toWorld(p[0],p[1],lv+lift), Q=toWorld(q[0],q[1],lv+lift); arr.push(P[0],P[1],P[2],Q[0],Q[1],Q[2]); if(fade) farr.push(fade(p[0],p[1]),fade(q[0],q[1])); };
-            switch(code){ case 1: case 14: push(left(),bottom()); break; case 2: case 13: push(bottom(),right()); break; case 3: case 12: push(left(),right()); break; case 4: case 11: push(top(),right()); break; case 6: case 9: push(top(),bottom()); break; case 7: case 8: push(left(),top()); break;
-              case 5: case 10: { const mid=(a+b+c+d)/4>=lv; if((code===5)===mid){ push(left(),top()); push(bottom(),right()); } else { push(left(),bottom()); push(top(),right()); } } }
+            const a=z[r0+i],b=z[r0+i+1],c=z[r1+i+1],d=z[r1+i]; const mn=Math.min(a,b,c,d), mx=Math.max(a,b,c,d); if(lv<mn||lv>=mx) continue;
+            const x0=X(i),x1=X(i+1); if(skip&&skip((x0+x1)/2,(y0+y1)/2)) continue;
+            tri(x0,y0,a, x0,y1,d, x1,y0,b); tri(x1,y0,b, x0,y1,d, x1,y1,c);
           } }
       }
       return [ segs(out.normal,matNormal,fade?fd.normal:null), segs(out.index,matIndex,fade?fd.index:null) ];
@@ -182,11 +190,24 @@
       for(let r=0;r<rows-1;r++) for(let c=0;c<cols-1;c++){ if(skip){ const x=G.x0+(c+0.5)*step*G.cell, y=G.y1-(r+0.5)*step*G.cell; if(skip(x,y)) continue; } const a=r*cols+c,b=a+1,d=a+cols,e=d+1; idx.push(a,d,b,b,d,e); }
       const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(pos,3)); g.setIndex(idx); const m=new THREE.Mesh(g,surfMat); group.add(m); return m;
     }
-    const L={};
-    L.localSurf = surface(DATA.local, 2, null);
-    L.regionSurf = surface(DATA.region, 1, (x,y)=>inLocal(x,y));
-    [L.local, L.localIdx] = contours(downsample(DATA.local,2), CONFIG.localInterval, 5, lineMat, indexMat, 1.5, edgeFade);
-    [L.region, L.regionIdx] = contours(DATA.region, CONFIG.regionInterval, 5, regMat, regIdxMat, 8);
+    const L={}, LOCAL2=downsample(DATA.local,2);
+    const inLocalCore=(x,y)=>{ const G=DATA.local, m=1500; return x>=G.x0+m&&x<=G.x0+(G.w-1)*G.cell-m&&y<=G.y1-m&&y>=G.y1-(G.h-1)*G.cell+m; };
+    // Two grounds, never both: from orbit down to ~70 km across, the coarse relief everywhere with coarse contours of
+    // one character on it; once the fine contours are fully in, the fine relief with a 1.5 km overlap of the coarse
+    // one under it (same colour, so the seam cannot show). Inside the fine extent the coarse contours come from the
+    // same coarse grid as outside — cutting them on the fine triangles made the box visible as a change of texture.
+    L.regionSurfFull = surface(DATA.region, 1, null);
+    L.regionSurf = surface(DATA.region, 1, inLocalCore);
+    { const [a,b]=contours(DATA.region, CONFIG.regionInterval, 5, regMat, regIdxMat, 4, null, inLocalCore); L.region=a; L.regionIdx=b; }
+    { const [a,b]=contours(DATA.region, CONFIG.regionInterval, 5, regMat, regIdxMat, 4, null, (x,y)=>!inLocalCore(x,y)); L.regionIn=a; L.regionInIdx=b; }
+    const fineMats=[];   // materials of everything draped on the fine relief: depth-tested only once the fine ground is the one on screen
+    // the fine layer is built after the first frame, so the globe is on screen while the county's geometry is still being cut
+    const buildLocal=()=>{
+      L.localSurf = surface(DATA.local, 2, null);
+      [L.local, L.localIdx] = contours(LOCAL2, CONFIG.localInterval, 5, lineMat, indexMat, 1.0, edgeFade);
+      for(const o of [L.local,L.localIdx,L.county,L.roads,L.water]) if(o) fineMats.push(o.material);
+      recolourFaded();
+    };
     // the globe under everything: an occluder a little below sea level so the far side's outlines stay hidden
     { const g=new THREE.SphereGeometry(RE-20000,128,96); const m=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:CONFIG.blockColor})); m.position.set(0,-RE,0); group.add(m); L.globeMesh=m; }
     // outlines, draped where there is relief and on the sea-level sphere elsewhere
@@ -222,7 +243,7 @@
       const w=host.clientWidth,h=host.clientHeight;
       if(!w||!h){ pendingFit=true; return; }
       pendingFit=false;
-      const pr=Math.min(devicePixelRatio||1,2); if(pr!==renderer.getPixelRatio()) renderer.setPixelRatio(pr);
+      const pr=Math.min(devicePixelRatio||1,1.5); if(pr!==renderer.getPixelRatio()) renderer.setPixelRatio(pr);
       renderer.setSize(w,h,false); camera.aspect=w/h;
       dist=R*3; pol=polFinal; pivot.copy(pivotHome); camera.fov=CONFIG.lens; camera.updateProjectionMatrix();
       const margin=1/(CONFIG.fitMargin||1.1);
@@ -242,8 +263,12 @@
       const globe=kmOut(1.6e6,6e5), grat=globe, naA=kmOut(2.5e5,1.0e5), region=kmIn(1.6e6,9e5)*kmOut(9e4,4.5e4), local=kmIn(1.4e5,7e4), county=Math.max(local,0.6*kmIn(1.2e6,4e5));
       set(L.globe,0.7,globe); set(L.grat,0.18,grat);
       set(L.na,0.85,naA); set(L.states,0.5,naA);
-      set(L.region,0.55,region); set(L.regionIdx,0.8,region);
+      set(L.region,0.55,region); set(L.regionIdx,0.8,region); set(L.regionIn,0.55,region*(1-local)); set(L.regionInIdx,0.8,region*(1-local));
       set(L.local,CONFIG.lineOpacity??0.75,local); set(L.localIdx,1,local); set(L.county,1,county); set(L.roads,0.85,local); set(L.water,0.95,local);
+      const fineActive = local>=0.999 && !!L.localSurf;
+      if(L.localSurf) L.localSurf.visible=fineActive; L.regionSurf.visible=fineActive; L.regionSurfFull.visible=!fineActive;
+      for(const m of fineMats) if(m.depthTest!==fineActive) m.depthTest=fineActive;
+      if(L.county && !fineMats.includes(L.county.material)) L.county.material.depthTest=false;   // before the fine ground exists the county line sits on nothing it can be tested against
       return vw;
     }
     // ---- approach: from the whole Earth, town facing us, down to the fitted frame
@@ -307,6 +332,7 @@
       if(CONFIG.label && pinWorld){ const p=pinWorld.clone().project(camera); const behind=p.z>1; labelEl.style.opacity=behind?0:1; labelEl.style.left=((p.x+1)/2*host.clientWidth)+'px'; labelEl.style.top=((1-p.y)/2*host.clientHeight)+'px'; }
     }
     requestAnimationFrame(frame);
+    requestAnimationFrame(()=>setTimeout(()=>{ if(alive) buildLocal(); },0));
     return { destroy(){ alive=false; io.disconnect(); if(ro) ro.disconnect(); removeEventListener('resize',requestFit); clearInterval(themeWatch); renderer.dispose(); renderer.domElement.remove(); labelEl.remove(); },
       setAzimuth(a){ az=a; }, get azimuth(){ return az; },
       setProgress(t){ if(AP) AP.target=Math.min(1,Math.max(0,+t||0)); }, get progress(){ return AP?AP.t:1; },
