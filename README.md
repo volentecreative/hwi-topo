@@ -82,11 +82,17 @@ Or the no-JavaScript way — give any element `data-topo` and it mounts itself:
 `approach: true` opens on the whole Earth, the county facing you, and descends to the frame the
 turntable would otherwise open on. Progress 0 is the globe, 1 is the landing frame. On the way:
 the country outlines and a 15° graticule hold until about 1,600 km across, North America in more
-detail until 100 km; continental relief contours from about 3,500 km down to 300 km; regional
-contours from 500 km down to 90 km; the county-scale contours, the county line and any roads and
-rivers from 150 km in. The look-at point travels from the Earth's centre to the county over the first half,
-the tilt arrives over the second half, the heading swings from `approachHeading` to `startHeading`,
-and the lens narrows from `approachLens` to `lens`. Once it lands, rotation and drag take over.
+detail until 100 km; continental relief contours from about 3,500 km down to 300 km, arriving in
+three steps (400 m lines first, 200 m from about 2,000 km, 100 m from about 1,000 km); regional
+contours from 500 km down to 90 km, index lines first; the county-scale contours, the county line and
+any roads and rivers from 150 km in. So the contour density roughly doubles about six times on the
+way down, each step fading in before the last has settled, and the spacing on screen stays much the same.
+
+The camera move is three overlapping phases on one anchor. The look-at point settles on the county
+over the first 45%; the heading swings from `approachHeading` to `startHeading` early, easing out
+so that nine tenths of the turn is done by about 55% and all of it by 65%; the tilt comes on through the
+middle, from 35% to 72%; and the last third is the approach itself — zoom and lens, from
+`approachLens` to `lens` — with nothing else moving. Once it lands, rotation and drag take over.
 
 Drive it from scroll with a tall track and a sticky stage:
 
@@ -121,11 +127,13 @@ Only one of the three is the ground at any moment: the continental relief from o
 drawn opaque under its lines, so a contour behind a ridge is hidden rather than drawn through it, and
 each coarser relief keeps a small overlap under the next, in the same colour, so no seam can show.
 The contours are cut on the relief's own triangles (marching triangles, not squares), so a line can
-never fall below the surface it sits on and come out dashed.
+never fall below the surface it sits on and come out dashed. The graticule and the country outlines are
+draped the same way — on the continental relief where there is land, on the sea-level sphere elsewhere —
+so they ride over the terrain rather than being buried under it.
 
 A finer level never arrives as a new layer. Its index lines are cut at the coarser level's interval
-— the regional index is every 100 m like the continental lines, the fine index every 50 m like the
-regional ones — and those fade in first, over the coarser lines, which fade out; only once they are
+— the continental level itself comes in as 400 m, then 200 m, then 100 m lines; the regional index is
+every 100 m like those, the fine index every 50 m like the regional ones — and those fade in first, over the coarser lines, which fade out; only once they are
 fully in does the finer relief become the ground and the intermediate contours fill in. During that
 crossfade the finer lines are drawn without depth testing, so neither surface can dash them. Each
 grid's outer margin is blended toward the next coarser field and its lines fade out toward the edge,

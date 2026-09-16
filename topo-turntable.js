@@ -121,6 +121,8 @@
     { const G=DATA.region, ex0=G.x0, ex1=G.x0+(G.w-1)*G.cell, ey1=G.y1, ey0=G.y1-(G.h-1)*G.cell, inner=40000, outer=100000;
       for(let j=0;j<G.h;j++) for(let i=0;i<G.w;i++){ const x=G.x0+i*G.cell, y=G.y1-j*G.cell; const d=Math.min(x-ex0,ex1-x,y-ey0,ey1-y); const f=Math.min(1,Math.max(0,(outer-d)/(outer-inner))); if(f>0){ const r=zCont(x,y); if(!isNaN(r)) G.z[j*G.w+i]=G.z[j*G.w+i]*(1-f)+r*f; } } }
     const zRegionB=gridZ(DATA.region);
+    // height on the relief's own triangles (each cell split a-d-b, b-d-c), so a line sampled with it lies on the drawn surface
+    const triZ=(G)=>(x,y)=>{ const gx=(x-G.x0)/G.cell, gy=(G.y1-y)/G.cell; if(gx<0||gy<0||gx>G.w-1||gy>G.h-1) return NaN; const i=Math.min(G.w-2,Math.floor(gx)), j=Math.min(G.h-2,Math.floor(gy)), fx=gx-i, fy=gy-j; const z=G.z, a=z[j*G.w+i], b=z[j*G.w+i+1], c=z[(j+1)*G.w+i+1], d=z[(j+1)*G.w+i]; return fx+fy<=1 ? a+(b-a)*fx+(d-a)*fy : c+(d-c)*(1-fx)+(b-c)*(1-fy); };
     const heightAt=(x,y)=>{ let h=zLocal(x,y); if(isNaN(h)) h=zRegionB(x,y); if(isNaN(h)) h=zCont(x,y); return isNaN(h)?0:h; };
     const inGrid=(G,m)=>(x,y)=>x>=G.x0+m&&x<=G.x0+(G.w-1)*G.cell-m&&y<=G.y1-m&&y>=G.y1-(G.h-1)*G.cell+m;
     const inLocal=(x,y)=>x>=DATA.local.x0&&x<=DATA.local.x0+(DATA.local.w-1)*DATA.local.cell&&y<=DATA.local.y1&&y>=DATA.local.y1-(DATA.local.h-1)*DATA.local.cell;
@@ -155,7 +157,7 @@
     const group=new THREE.Group(); scene.add(group);
     const lineMat=new THREE.LineBasicMaterial({color:CONFIG.lineColor,transparent:true,opacity:CONFIG.lineOpacity??0.75}), indexMat=new THREE.LineBasicMaterial({color:CONFIG.indexLineColor,transparent:true,opacity:1});
     const regMat=new THREE.LineBasicMaterial({color:CONFIG.lineColor,transparent:true,opacity:0.55}), regIdxMat=new THREE.LineBasicMaterial({color:CONFIG.indexLineColor,transparent:true,opacity:0.8});
-    const contMat=new THREE.LineBasicMaterial({color:CONFIG.lineColor,transparent:true,opacity:0.55}), contIdxMat=new THREE.LineBasicMaterial({color:CONFIG.indexLineColor,transparent:true,opacity:0.8});
+    const contMat=new THREE.LineBasicMaterial({color:CONFIG.lineColor,transparent:true,opacity:0.55}), contMidMat=new THREE.LineBasicMaterial({color:CONFIG.lineColor,transparent:true,opacity:0.55}), contIdxMat=new THREE.LineBasicMaterial({color:CONFIG.indexLineColor,transparent:true,opacity:0.8});
     const countyMat=new THREE.LineBasicMaterial({color:CONFIG.countyColor,transparent:true,opacity:1});
     const naMat=new THREE.LineBasicMaterial({color:CONFIG.indexLineColor,transparent:true,opacity:0.85});
     const globeMat=new THREE.LineBasicMaterial({color:CONFIG.lineColor,transparent:true,opacity:0.7}), gratMat=new THREE.LineBasicMaterial({color:CONFIG.lineColor,transparent:true,opacity:0.18});
@@ -174,11 +176,15 @@
 
     // ---- contours: marching triangles on exactly the triangles the relief is built from (a-d-b, b-d-c per cell),
     // so every line lies on the surface it is drawn over and a lift of a metre keeps it clear
+    // indexEvery is a count (every n-th line is an index line, drawn with matIndex) or a function of the level
+    // returning a tier number, with a material per tier in matNormal; one LineSegments comes back per tier
     function contours(G, interval, indexEvery, matNormal, matIndex, lift, fade, skip){
-      const out={normal:[],index:[]}, fd={normal:[],index:[]}; const {w,h,z}=G; let lo=1e9,hi=-1e9; for(const v of z){ if(v<lo)lo=v; if(v>hi)hi=v; }
+      const mats = Array.isArray(matNormal) ? matNormal : [matNormal, matIndex];
+      const tierOf = typeof indexEvery==='function' ? indexEvery : (lv)=>(Math.round(lv/interval)%indexEvery===0 ? 1 : 0);
+      const out=mats.map(()=>[]), fd=mats.map(()=>[]); const {w,h,z}=G; let lo=1e9,hi=-1e9; for(const v of z){ if(v<lo)lo=v; if(v>hi)hi=v; }
       const X=(i)=>G.x0+i*G.cell, Y=(j)=>G.y1-j*G.cell;
       for(let lv=Math.floor(lo/interval)*interval+interval; lv<hi; lv+=interval){
-        const isIdx=(Math.round(lv/interval)%indexEvery===0), arr = isIdx ? out.index : out.normal, farr = isIdx ? fd.index : fd.normal;
+        const tier=tierOf(lv), arr=out[tier], farr=fd[tier];
         const push=(p,q)=>{ const P=toWorld(p[0],p[1],lv+lift), Q=toWorld(q[0],q[1],lv+lift); arr.push(P[0],P[1],P[2],Q[0],Q[1],Q[2]); if(fade) farr.push(fade(p[0],p[1]),fade(q[0],q[1])); };
         const cross=(x0,y0,h0,x1,y1,h1)=>{ const t=(lv-h0)/(h1-h0); return [x0+(x1-x0)*t, y0+(y1-y0)*t]; };
         const tri=(x0,y0,h0,x1,y1,h1,x2,y2,h2)=>{ const s0=h0>=lv,s1=h1>=lv,s2=h2>=lv; if(s0===s1&&s1===s2) return;
@@ -192,7 +198,7 @@
             tri(x0,y0,a, x0,y1,d, x1,y0,b); tri(x1,y0,b, x0,y1,d, x1,y1,c);
           } }
       }
-      return [ segs(out.normal,matNormal,fade?fd.normal:null), segs(out.index,matIndex,fade?fd.index:null) ];
+      return mats.map((m,k)=>segs(out[k],m,fade?fd[k]:null));
     }
     const downsample=(G,f)=>{ const w=Math.floor((G.w-1)/f)+1, h=Math.floor((G.h-1)/f)+1, z=new Float32Array(w*h); for(let j=0;j<h;j++) for(let i=0;i<w;i++) z[j*w+i]=G.z[(j*f)*G.w+i*f]; return {w,h,z,cell:G.cell*f,x0:G.x0,y1:G.y1}; };
     // ---- surfaces: an opaque relief under the lines so contours behind a ridge are hidden, not drawn through it
@@ -216,7 +222,7 @@
     L.contSurf     = surface(DATA.cont, 1, regCore);
     L.regionSurfFull = surface(DATA.region, 1, null);
     L.regionSurf     = surface(DATA.region, 1, inLocalCore);
-    { const [a,b]=contours(DATA.cont, CONFIG.contInterval, 5, contMat, contIdxMat, 30, null, null); L.cont=a; L.contIdx=b; }
+    { const ci=CONFIG.contInterval; [L.cont, L.contMid, L.contIdx] = contours(DATA.cont, ci, lv=>{ const k=Math.round(lv/ci); return k%4===0 ? 2 : k%2===0 ? 1 : 0; }, [contMat,contMidMat,contIdxMat], null, 30, null, null); }
     const fineMats=[], regMats=[];   // materials draped on the fine / regional relief: depth-tested only while that relief is the one on screen
     // the finer levels are cut after the first frame, so the globe is on screen while the county's geometry is still being generated
     const buildRegion=()=>{
@@ -235,14 +241,20 @@
     // outlines, draped where there is relief and on the sea-level sphere elsewhere
     // draped lines are subdivided to the grid's own spacing first: a straight segment between two far-apart vertices
     // would otherwise cut through every hill between them and come out dotted
-    const drapeLL=(rings,mat,lift,onGround,fade)=>{ const arr=[], fad=[]; const stepM=onGround?150:0;
-      for(const r of rings){ for(let i=1;i<r.length;i++){ const [lo0,la0]=r[i-1],[lo1,la1]=r[i]; let n=1; if(stepM){ const a=llToXY(lo0,la0),b=llToXY(lo1,la1); n=Math.max(1,Math.min(400,Math.ceil(Math.hypot(b[0]-a[0],b[1]-a[1])/stepM))); }
-        let prev=null; for(let k=0;k<=n;k++){ const u=k/n, lon=lo0+(lo1-lo0)*u, lat=la0+(la1-la0)*u; const xy=llToXY(lon,lat); const h=onGround?heightAt(xy[0],xy[1]):0; const P=llToWorld(lon,lat,h+lift); if(prev){ arr.push(prev[0],prev[1],prev[2],P[0],P[1],P[2]); if(fade){ const f=fade(xy[0],xy[1]); fad.push(prevF,f); } } prev=P; var prevF=fade?fade(xy[0],xy[1]):0; } } }
+    // onGround: false = on the sea-level sphere; true = on the finest relief, 150 m steps; 'cont' = on the continental
+    // relief's own triangles at 1 km steps where the line crosses that grid (the graticule: it must not sink under the land)
+    const drapeLL=(rings,mat,lift,onGround,fade)=>{ const arr=[], fad=[]; const zc=triZ(DATA.cont), inCont=inGrid(DATA.cont,0), inReg=inGrid(DATA.region,0);
+      const hAt=onGround==='cont' ? (x,y)=>{ const h=zc(x,y); return isNaN(h)?0:h; } : heightAt;
+      // sample spacing under a segment: the finest grid it crosses sets it (150 m on the fine grid, 500 m regional, 2 km continental)
+      const stepFor=(a,b)=>{ if(!onGround) return 0; const m=[(a[0]+b[0])/2,(a[1]+b[1])/2], pts=[a,b,m]; const any=f=>pts.some(p=>f(p[0],p[1]));
+        if(onGround==='cont') return any(inCont)?1000:0; return any(inLocal)?150:any(inReg)?500:any(inCont)?2000:0; };
+      for(const r of rings){ for(let i=1;i<r.length;i++){ const [lo0,la0]=r[i-1],[lo1,la1]=r[i]; let n=1; if(onGround){ const a=llToXY(lo0,la0),b=llToXY(lo1,la1); const stepM=stepFor(a,b); if(stepM) n=Math.max(1,Math.min(400,Math.ceil(Math.hypot(b[0]-a[0],b[1]-a[1])/stepM))); }
+        let prev=null; for(let k=0;k<=n;k++){ const u=k/n, lon=lo0+(lo1-lo0)*u, lat=la0+(la1-la0)*u; const xy=llToXY(lon,lat); const h=onGround?hAt(xy[0],xy[1]):0; const P=llToWorld(lon,lat,h+lift); if(prev){ arr.push(prev[0],prev[1],prev[2],P[0],P[1],P[2]); if(fade){ const f=fade(xy[0],xy[1]); fad.push(prevF,f); } } prev=P; var prevF=fade?fade(xy[0],xy[1]):0; } } }
       return segs(arr,mat,fade?fad:null); };
     const dq=(rings,f)=>rings.map(r=>r.map(([a,b])=>[a/f,b/f]));
     L.globe = drapeLL(dq(DATA.lines.globe,100), globeMat, 0, false);
     L.na    = drapeLL(dq(DATA.lines.na,100),    naMat,  40, true);
-    { const g=[]; for(let lon=-180;lon<180;lon+=15){ const r=[]; for(let lat=-90;lat<=90;lat+=2) r.push([lon,lat]); g.push(r); } for(let lat=-75;lat<=75;lat+=15){ const r=[]; for(let lon=-180;lon<=180;lon+=2) r.push([lon,lat]); g.push(r); } L.grat=drapeLL(g,gratMat,0,false); }
+    { const g=[]; for(let lon=-180;lon<180;lon+=15){ const r=[]; for(let lat=-90;lat<=90;lat+=2) r.push([lon,lat]); g.push(r); } for(let lat=-75;lat<=75;lat+=15){ const r=[]; for(let lon=-180;lon<=180;lon+=2) r.push([lon,lat]); g.push(r); } L.grat=drapeLL(g,gratMat,60,'cont'); }
     // the county line, draped on the fine relief and lifted clear of the contours
     L.county = CONFIG.county ? drapeLL([countyLL],countyMat,12,true,null) : null;
     // highways and rivers (local metres), draped
@@ -282,15 +294,16 @@
       const set=(o,base,a)=>{ if(!o) return; o.material.opacity=base*a; o.visible=a>0.01; };
       const kmOut=(hi,lo)=>smooth(lo,hi,vw), kmIn=(hi,lo)=>1-smooth(lo,hi,vw);   // fade as the view narrows (in) or widens (out)
       const globe=kmOut(1.6e6,6e5), naA=kmOut(2.5e5,1.0e5);
-      // continental: in from orbit, out as the regional index lines take over
-      const cont=kmIn(3.5e6,2.2e6)*kmOut(5e5,3e5);
+      // continental, in three tiers so density grows a step at a time: 400 m lines from orbit, 200 m from ~2000 km
+      // across, 100 m from ~1000 km; all out together as the regional index lines (also 100 m) take over
+      const contOut=kmOut(5e5,3e5), cont4=kmIn(3.5e6,2.2e6)*contOut, cont2=kmIn(2.0e6,1.2e6)*contOut, cont=kmIn(1.0e6,6e5)*contOut;
       // regional: index (100 m, matching the continental lines) in first, minors (50 m) after; out as the fine index takes over
       const regIdx=kmIn(5e5,3e5)*kmOut(1.5e5,9e4), regMin=kmIn(3e5,2e5)*kmOut(1.5e5,9e4);
       // fine: index (50 m, matching the regional lines) in first, minors (25 m) after, full by the landing frame
       const locIdx=kmIn(1.5e5,9e4), locMin=kmIn(9e4,5.5e4);
       const county=Math.max(locIdx,0.6*kmIn(1.2e6,4e5));
       set(L.globe,0.7,globe); set(L.grat,0.18,globe); set(L.na,0.85,naA);
-      set(L.cont,0.55,cont); set(L.contIdx,0.8,cont);
+      set(L.cont,0.55,cont); set(L.contMid,0.55,cont2); set(L.contIdx,0.8,cont4);
       set(L.region,0.55,regMin); set(L.regionIdx,0.8,regIdx);
       set(L.local,CONFIG.lineOpacity??0.75,locMin); set(L.localIdx,1,locIdx); set(L.county,1,county); set(L.roads,0.85,locMin); set(L.water,0.95,locMin);
       // which relief is the ground: the one whose index lines are fully in
@@ -308,13 +321,17 @@
     if(CONFIG.approach){
       const az0=-(CONFIG.approachHeading||0)*D2R, lens0=CONFIG.approachLens||38, globeC=new THREE.Vector3(0,-RE,0);
       AP={ target:0, t:0, farDist(){ return 1.15*RE/Math.sin(lens0*D2R/2); }, done(){ return this.t>=0.999; } };
+      // three overlapping phases on one anchor: the heading swings round early (90% done by ~55% of the scroll, all of
+      // it by 65%), the tilt comes on through the middle (done by ~72%), and the last third is mostly the approach
+      // itself — zoom and lens — with the camera's orbit centred on the county the whole way down
       var applyApproach=function(){
         const t=AP.t, e=t*t*(3-2*t);
         dist=Math.exp((1-e)*Math.log(AP.farDist())+e*Math.log(fitDist));
         camera.fov=(1-e)*lens0+e*CONFIG.lens;
-        pol=(1-smooth(0.5,1,t))*0.02+smooth(0.5,1,t)*polFinal;
-        az=az0+(azFinal-az0)*e;
-        const q=1-smooth(0,0.55,t); pivot.copy(pivotHome).lerp(globeC,q);
+        const th=Math.min(1,t/0.65), heading=1-Math.pow(1-th,3);
+        az=az0+(azFinal-az0)*heading;
+        const tilt=smooth(0.35,0.72,t); pol=(1-tilt)*0.02+tilt*polFinal;
+        const q=1-smooth(0,0.45,t); pivot.copy(pivotHome).lerp(globeC,q);
         setFrustum(); placeCam(az);
       };
       const track=CONFIG.approachScroll ? document.querySelector(CONFIG.approachScroll) : null;
@@ -335,7 +352,7 @@
       const next={}; for(const k of COLOR_KEYS) next[k]=resolveColor(host, RAWCOLORS[k]);
       const pin = labelStyled ? getComputedStyle(labelEl).color : next.labelColor;
       const sig=JSON.stringify([...COLOR_KEYS.map(k=>next[k]), pin]); if(sig===lastColors) return; lastColors=sig; Object.assign(CONFIG,next);
-      host.style.background=CONFIG.background; lineMat.color.set(CONFIG.lineColor); regMat.color.set(CONFIG.lineColor); contMat.color.set(CONFIG.lineColor); globeMat.color.set(CONFIG.lineColor); gratMat.color.set(CONFIG.lineColor);
+      host.style.background=CONFIG.background; lineMat.color.set(CONFIG.lineColor); regMat.color.set(CONFIG.lineColor); contMat.color.set(CONFIG.lineColor); contMidMat.color.set(CONFIG.lineColor); globeMat.color.set(CONFIG.lineColor); gratMat.color.set(CONFIG.lineColor);
       indexMat.color.set(CONFIG.indexLineColor); regIdxMat.color.set(CONFIG.indexLineColor); contIdxMat.color.set(CONFIG.indexLineColor); naMat.color.set(CONFIG.indexLineColor);
       surfMat.color.set(CONFIG.blockColor); L.globeMesh.material.color.set(CONFIG.blockColor); countyMat.color.set(CONFIG.countyColor);
       if(pinMat) pinMat.color.set(pin); if(!labelStyled) labelEl.style.color=CONFIG.labelColor;
