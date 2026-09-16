@@ -31,8 +31,10 @@
     "lineColor": "var(--topo-line, var(--topo, #525352))",
     "lineOpacity": 1,
     "contourSpacing": 16,
-    "spacingTolerance": 0.5,
-    "intervalBlend": 0.35,
+    "intervalRevealMode": "progressive",
+    "microInterval": 25,
+    "spacingTolerance": 0.2,
+    "intervalBlend": 0.5,
     "minSegment": 24,
     "revealStart": 550,
     "revealFull": 120,
@@ -54,7 +56,11 @@
     "water": false,
     "waterColor": "var(--topo-water, var(--water, #3f6063))",
     "label": "Gainesboro",
+    "towns": [{"name":"Whitleyville","lon":-85.6719,"lat":36.4453},{"name":"Mayfield","lon":-85.6149,"lat":36.2454}],
+    "countyLabel": "Jackson County",
+    "countyLabelClass": "",
     "labelColor": "var(--topo-label, var(--label, #f2f2f0))",
+    "labelSecondaryColor": "var(--topo-label-secondary, var(--label-secondary, #9a9a96))",
     "labelHeight": 0.45,
     "labelFont": "500 15px/1 \"Helvetica Neue\", Helvetica, Arial, sans-serif",
     "labelClass": "",
@@ -68,10 +74,12 @@
     "tiltEnd": 0.72,
     "lensStart": 0,
     "lensEnd": 1,
-    "orbitStart": 0.86,
-    "orbitAmount": 12,
-    "landingRate": 45,
-    "orbitEasing": "velocity",
+    "orbitStart": 0.9,
+    "orbitMid": 0.95,
+    "orbitEnd": 1,
+    "orbitAmount": 10,
+    "orbitRamp": "smooth",
+    "headingShortest": true,
     "data": {}
   };
 
@@ -88,7 +96,7 @@
   const THREE_URL = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
   let threeReady = null;
   function loadThree(){ if(global.THREE) return Promise.resolve(); if(threeReady) return threeReady; threeReady = new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=THREE_URL; s.onload=res; s.onerror=()=>rej(new Error('three.js failed to load')); document.head.appendChild(s); }); return threeReady; }
-  function injectCSS(){ if(document.getElementById('topo-turntable-css')) return; const st=document.createElement('style'); st.id='topo-turntable-css'; st.textContent='.topo-turntable{position:relative}.topo-turntable canvas{position:absolute;top:0;left:0;display:block;width:100%;height:100%}.topo-turntable .topo-label{position:absolute;transform:translate(-50%,-100%);white-space:nowrap;pointer-events:none;user-select:none}:where(.topo-turntable .topo-label){padding:0 0 6px 0;letter-spacing:.01em}.topo-turntable .topo-label::before{content:"";position:absolute;left:50%;bottom:0;width:6px;height:6px;transform:translate(-50%,50%);background:currentColor}'; document.head.appendChild(st); }
+  function injectCSS(){ if(document.getElementById('topo-turntable-css')) return; const st=document.createElement('style'); st.id='topo-turntable-css'; st.textContent='.topo-turntable{position:relative}.topo-turntable canvas{position:absolute;top:0;left:0;display:block;width:100%;height:100%}.topo-turntable .topo-label{position:absolute;transform:translate(-50%,-100%);white-space:nowrap;pointer-events:none;user-select:none}:where(.topo-turntable .topo-label){padding:0 0 6px 0;letter-spacing:.01em}.topo-turntable .topo-label::before{content:"";position:absolute;left:50%;bottom:0;width:6px;height:6px;transform:translate(-50%,50%);background:currentColor}:where(.topo-turntable .topo-label--county){letter-spacing:.16em;text-transform:uppercase;font-size:.85em;padding:0}.topo-turntable .topo-label--county{transform:translate(-50%,-50%)}.topo-turntable .topo-label--county::before{display:none}'; document.head.appendChild(st); }
 
   // ---- data: an 8-bit PNG is a grid of heights (lo + value * step); lines.json is quantised lon/lat rings
   // a grid is a PNG of 16-bit heights, R the high byte and G the low: lo + value * step
@@ -104,7 +112,7 @@
       .then(([local,region,cont,lines])=>({local,region,cont,lines}));
   }
 
-  const COLOR_KEYS = ['background','lineColor','mutedColor','boundaryColor','blockColor','labelColor','countyColor','roadColor','waterColor'];
+  const COLOR_KEYS = ['background','lineColor','mutedColor','boundaryColor','blockColor','labelColor','labelSecondaryColor','countyColor','roadColor','waterColor'];
   function resolveColor(host, v){
     if(typeof v!=='string') return v;
     const m = v.match(/^var\(\s*(--[\w-]+)\s*(?:,\s*(.+?)\s*)?\)$/);
@@ -155,8 +163,11 @@
     let zlo=1e9,zhi=-1e9; { const G=DATA.local; for(let j=0;j<G.h;j+=2) for(let i=0;i<G.w;i+=2){ const x=G.x0+i*G.cell,y=G.y1-j*G.cell; if(x>=cx0&&x<=cx1&&y>=cy0&&y<=cy1){ const v=G.z[j*G.w+i]; if(v<zlo)zlo=v; if(v>zhi)zhi=v; } } }
 
     // ---- scene
-    const labelEl=document.createElement('div'); labelEl.className='topo-label'+(CONFIG.labelClass?' '+CONFIG.labelClass:''); host.appendChild(labelEl);
-    const labelStyled=!!CONFIG.labelClass;
+    // labels: the county name (primary colour, no pin) and the towns (secondary colour, a pin each); the first town is the anchor
+    const labels=[];   // {el, kind, world:Vector3, fade}
+    const mkLabel=(text,kind,cls)=>{ const el=document.createElement('div'); el.className='topo-label'+(kind==='county'?' topo-label--county':'')+(cls?' '+cls:''); el.textContent=text; host.appendChild(el); return el; };
+    const labelEl=CONFIG.label ? mkLabel(CONFIG.label,'town',CONFIG.labelClass) : null;
+    const labelStyled=!!CONFIG.labelClass, countyStyled=!!CONFIG.countyLabelClass;
     host.style.background=CONFIG.background; if(getComputedStyle(host).position==='static') host.style.position='relative'; host.style.overflow='hidden';
     const RATIO = CONFIG.aspectRatio || '16 / 10';
     let derivedWidth=false;
@@ -192,16 +203,20 @@
     const topoMats=[];
     const topoMat=(resIn,resOut,depthTest,gridId)=>{ const m=new THREE.ShaderMaterial({ uniforms:{ uColor:{value:new THREE.Color(CONFIG.lineColor)}, uOpacity:{value:1}, uPpm:{value:1}, uPpmR:{value:1}, uVw:{value:1e7},
         uSOn:{value:16}, uTol:{value:0.5}, uBlend:{value:0.35}, uMinLen:{value:24}, uR0:{value:1e6}, uR1:{value:1e5}, uSoft:{value:1}, uRad:{value:1e5}, uFeather:{value:1e5}, uHandSoft:{value:0.4}, uGRep:{value:0.03},
-        uResIn:{value:resIn}, uResOut:{value:resOut}, uDebug:{value:0}, uGridId:{value:gridId} },
+        uResIn:{value:resIn}, uResOut:{value:resOut}, uDebug:{value:0}, uGridId:{value:gridId}, uMode:{value:1}, uMicro:{value:0} },
       vertexShader:`attribute float aInt; attribute float aSlope; attribute float aLen; attribute float aDist; attribute float aFade; attribute float aHand;
-        uniform float uPpm, uPpmR, uVw, uSOn, uTol, uBlend, uMinLen, uR0, uR1, uSoft, uRad, uFeather, uHandSoft, uGRep, uResIn, uResOut; varying float vA; varying float vInt;
+        uniform float uPpm, uPpmR, uVw, uSOn, uTol, uBlend, uMinLen, uR0, uR1, uSoft, uRad, uFeather, uHandSoft, uGRep, uResIn, uResOut, uMode, uMicro; varying float vA; varying float vInt;
         #include <common>
         #include <logdepthbuf_pars_vertex>
         void main(){ vec4 mv=modelViewMatrix*vec4(position,1.0); gl_Position=projectionMatrix*mv;
           float reveal=pow(smoothstep(0.0,1.0,(log(uR0)-log(uVw))/(log(uR0)-log(uR1))),uSoft);
           float mask=1.0-smoothstep(uRad,uRad+uFeather,aDist);
           float g=uGRep*pow(max(aSlope,1e-4)/uGRep,uTol);
-          float room=smoothstep(uSOn*(1.0-uBlend),uSOn*(1.0+uBlend),aInt/g*uPpm);
+          float sPx=aInt/g*uPpm;
+          // progressive: a set fades in symmetrically in log-zoom around the width where its lines reach the target
+          // spacing, over ±uBlend octaves-ish, and nothing finer than uMicro is ever shown; existing: a linear ramp
+          float room = uMode>0.5 ? (aInt<uMicro*0.999 ? 0.0 : smoothstep(-1.0,1.0,log(sPx/uSOn)/max(0.05,uBlend)))
+                                 : smoothstep(uSOn*(1.0-uBlend),uSOn*(1.0+uBlend),sPx);
           float len=uMinLen>0.0 ? smoothstep(uMinLen*0.6,uMinLen*1.4,aLen*uPpm) : 1.0;
           float on=uResIn>0.0 ? smoothstep(4.0*(1.0-uHandSoft),4.0*(1.0+uHandSoft),uResIn*uPpmR) : 1.0;
           float off=uResOut>0.0 ? smoothstep(4.0*(1.0-uHandSoft),4.0*(1.0+uHandSoft),uResOut*uPpmR) : 0.0;
@@ -334,7 +349,7 @@
     const dq=(rings,f)=>rings.map(r=>r.map(([a,b])=>[a/f,b/f]));
     L.globe = drapeLL(dq(DATA.lines.globe,100), globeMat, 0, false);
     L.na    = drapeLL(dq(DATA.lines.na,100),    naMat,  40, true);
-    L.states= DATA.lines.states ? drapeLL(dq(DATA.lines.states,100), stateMat, 50, 'cont') : null;   // on the continental relief, like the graticule
+    L.states= DATA.lines.states ? drapeLL(dq(DATA.lines.states,100), stateMat, 40, true) : null;   // on whichever relief is finest there, so they survive to the landing frame
     { const g=[]; for(let lon=-180;lon<180;lon+=15){ const r=[]; for(let lat=-90;lat<=90;lat+=2) r.push([lon,lat]); g.push(r); } for(let lat=-75;lat<=75;lat+=15){ const r=[]; for(let lon=-180;lon<=180;lon+=2) r.push([lon,lat]); g.push(r); } L.grat=drapeLL(g,gratMat,60,'cont'); }
     // the county line, draped on the fine relief and lifted clear of the contours
     L.county = CONFIG.county ? drapeLL([countyLL],countyMat,12,true,null) : null;
@@ -344,12 +359,20 @@
     L.water = CONFIG.water ? drapeXY(OSM.water,waterMat,6,edgeFade) : null;
     // label pin at the town
     let pinTop=0, pinMat=null, pinWorld=null;
-    if(CONFIG.label){ const h0=heightAt(0,0); pinTop=h0+R*CONFIG.labelHeight/EX; const a=toWorld(0,0,h0), b=toWorld(0,0,pinTop); pinWorld=new THREE.Vector3(...b); pinMat=new THREE.LineBasicMaterial({color:CONFIG.labelColor}); group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a),pinWorld]),pinMat)); labelEl.textContent=CONFIG.label; if(!labelStyled) labelEl.style.color=CONFIG.labelColor; } else labelEl.remove();
-
+    const pinAt=(x,y,h)=>{ const h0=heightAt(x,y), top=h0+h; const a=toWorld(x,y,h0), b=toWorld(x,y,top); group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a),new THREE.Vector3(...b)]),pinMat)); return new THREE.Vector3(...b); };
+    if(CONFIG.label || (CONFIG.towns&&CONFIG.towns.length)) pinMat=new THREE.LineBasicMaterial({color:CONFIG.labelSecondaryColor});
+    if(CONFIG.label){ pinTop=heightAt(0,0)+R*CONFIG.labelHeight/EX; pinWorld=pinAt(0,0,R*CONFIG.labelHeight/EX); labels.push({el:labelEl, kind:'town', world:pinWorld, fade:()=>1}); }
+    for(const t of (CONFIG.towns||[])){ if(!t||!t.name) continue; const [x,y]=llToXY(+t.lon,+t.lat); if(!inLocal(x,y)) continue;
+      labels.push({el:mkLabel(t.name,'town',CONFIG.labelClass), kind:'town', world:pinAt(x,y,R*CONFIG.labelHeight*0.55/EX), fade:(vw)=>1-smooth(8e4,1.3e5,vw)}); }
+    // the county name sits in the county's southern third, clear of the anchor, and reads from the moment the county line does
+    if(CONFIG.countyLabel){ const x=CX, y=cy0+0.28*(cy1-cy0); const p=toWorld(x,y,heightAt(x,y)+R*0.06/EX);
+      labels.push({el:mkLabel(CONFIG.countyLabel,'county',CONFIG.countyLabelClass), kind:'county', world:new THREE.Vector3(...p), fade:(vw)=>1-smooth(4e5,7e5,vw)}); }
+    if(!labelStyled) for(const l of labels) if(l.kind==='town') l.el.style.color=CONFIG.labelSecondaryColor;
+    if(!countyStyled) for(const l of labels) if(l.kind==='county') l.el.style.color=CONFIG.labelColor;
     // ---- camera + fit: frame the county's box, over a full turn, so nothing clips as it rotates
     const polFinal=()=>(90-CONFIG.tilt)*D2R, azHome=()=>-(CONFIG.startHeading||0)*D2R;
     const pivotHome=new THREE.Vector3(...toWorld(CX,CY,(zlo+zhi)/2)), pivot=pivotHome.clone();
-    let pol=polFinal(), az=azHome(), spin=0, dragging=null, lastPointer=0, dist=R*3, fitDist=R*3, alive=true;
+    let pol=polFinal(), az=azHome(), spin=0, wasAtEnd=false, dragging=null, lastPointer=0, dist=R*3, fitDist=R*3, alive=true;
     function placeCam(a){ camera.position.set(pivot.x+dist*Math.sin(pol)*Math.sin(a), pivot.y+dist*Math.cos(pol), pivot.z+dist*Math.sin(pol)*Math.cos(a)); camera.lookAt(pivot); camera.updateMatrixWorld(); }
     const fitPts=[]; for(const x of [cx0,cx1]) for(const y of [cy0,cy1]){ fitPts.push(new THREE.Vector3(...toWorld(x,y,zlo)), new THREE.Vector3(...toWorld(x,y,zhi))); } if(pinWorld) fitPts.push(pinWorld);
     function fit(){
@@ -374,10 +397,10 @@
       const vw=2*dist*Math.tan(camera.fov*D2R/2)*Math.max(camera.aspect,1/camera.aspect);
       const set=(o,base,a)=>{ if(!o) return; o.material.opacity=base*a; o.visible=a>0.01; };
       const kmOut=(hi,lo)=>smooth(lo,hi,vw), kmIn=(hi,lo)=>1-smooth(lo,hi,vw);   // fade as the view narrows (in) or widens (out)
-      const globe=kmOut(1.6e6,6e5), grat=kmOut(5e5,2.5e5), naA=kmOut(2.5e5,1.0e5), states=kmOut(4e5,2e5);   // the boundaries hand the map to the topo as it resolves
+      const globe=kmOut(1.6e6,6e5), grat=kmOut(5e5,2.5e5), naA=kmOut(2.5e5,1.0e5), states=1;   // state lines stay: they are context at every scale
       const near=kmIn(1.5e5,9e4), fine=kmIn(9e4,5.5e4);
       const county=kmIn(7e5,4e5);   // once the county's shape can be read, not before
-      set(L.globe,0.9,globe); set(L.grat,0.6,grat); set(L.na,0.85,naA); set(L.states,0.9,states);
+      set(L.globe,0.9,globe); set(L.grat,0.6,grat); set(L.na,0.85,naA); set(L.states,0.8,states);
       set(L.county,1,county); set(L.roads,0.85,fine); set(L.water,0.95,fine);
       // the contours (see topoMat): pixels per metre at the anchor, discounted a little for the tilt's foreshortening
       const ppmR=(host.clientWidth||1)/(2*dist*Math.tan(camera.fov*D2R/2)*camera.aspect), ppm=ppmR*Math.sqrt(Math.max(0.15,Math.cos(pol)));
@@ -385,7 +408,7 @@
       for(const m of topoMats){ const u=m.uniforms; u.uPpm.value=ppm; u.uPpmR.value=ppmR; u.uVw.value=vw; u.uOpacity.value=C.lineOpacity??1;
         u.uSOn.value=+C.contourSpacing||16; u.uTol.value=+C.spacingTolerance||0; u.uBlend.value=Math.max(0.02,+C.intervalBlend||0.35); u.uMinLen.value=+C.minSegment||0;
         u.uR0.value=Math.max(1,+C.revealStart||550)*1000; u.uR1.value=Math.min(u.uR0.value*0.98,Math.max(1,+C.revealFull||120)*1000); u.uSoft.value=Math.max(0.2,+C.revealSoftness||1);
-        u.uRad.value=(+C.localRadius||110)*1000; u.uFeather.value=Math.max(1,(+C.localFeather||1)*(+C.localRadius||110)*1000); u.uHandSoft.value=Math.min(0.95,Math.max(0.05,+C.handoffSoftness||0.4)); u.uGRep.value=gRep; u.uDebug.value=dbg; }
+        u.uMode.value=C.intervalRevealMode==='existing'?0:1; u.uMicro.value=+C.microInterval||0; u.uRad.value=(+C.localRadius||110)*1000; u.uFeather.value=Math.max(1,(+C.localFeather||1)*(+C.localRadius||110)*1000); u.uHandSoft.value=Math.min(0.95,Math.max(0.05,+C.handoffSoftness||0.4)); u.uGRep.value=gRep; u.uDebug.value=dbg; }
       for(let i=0;i<3;i++) surfMats[i].color.set(dbg===2 ? ['#3a2e2e','#2e3a2e','#2e2e3a'][i] : C.blockColor);
       return vw;
     }
@@ -394,12 +417,14 @@
     if(CONFIG.approach){
       const lens0=()=>+CONFIG.approachLens||38, globeC=new THREE.Vector3(0,-RE,0);
       AP={ target:0, t:0, farDist(){ return 1.15*RE/Math.sin(lens0()*D2R/2); }, done(){ return this.t>=0.999; } };
-      // the descent holds startHeading; over the last stretch (orbitStart → 1) the camera eases into a shallow arc
-      // around the county — orbitAmount degrees, still moving at the end (landingRate, degrees per unit of scroll) —
-      // and the turntable simply continues that motion: nothing is reset on landing
-      var orbitAt=function(t){ const s0=Math.min(0.99,Math.max(0,+CONFIG.orbitStart||0.86)); if(t<=s0) return 0; const u=Math.min(1,(t-s0)/(1-s0)), A=(+CONFIG.orbitAmount||0)*D2R, V=(+CONFIG.landingRate||0)*D2R*(1-s0);
-        switch(CONFIG.orbitEasing){ case 'linear': return A*u; case 'smoothstep': return A*u*u*(3-2*u); case 'ease-in': return A*u*u;
-          default: return A*(-2*u*u*u+3*u*u) + V*(u*u*u-u*u); } };   // Hermite: starts at rest, arrives at A with velocity V
+      // the descent holds startHeading; over the last stretch the camera's orbital speed ramps up — 0 at orbitStart,
+      // half at orbitMid, full at orbitEnd (linear pieces, or smoothed) — so the heading curves into the orbit
+      // through orbitAmount degrees, and the turntable simply continues the turn at its own pace from there
+      var orbitSpeed=function(t){ const s0=+CONFIG.orbitStart||0.9, sm=Math.max(s0+0.005,+CONFIG.orbitMid||0.95), s1=Math.max(sm+0.005,+CONFIG.orbitEnd||1); if(t<=s0) return 0; if(t>=s1) return 1;
+        const sm_=CONFIG.orbitRamp==='linear' ? (u=>u) : (u=>u*u*(3-2*u)); return t<sm ? 0.5*sm_((t-s0)/(sm-s0)) : 0.5+0.5*sm_((t-sm)/(s1-sm)); };
+      var orbitAt=function(t){ const s0=+CONFIG.orbitStart||0.9, s1=Math.max(s0+0.01,+CONFIG.orbitEnd||1), A=(+CONFIG.orbitAmount||0)*D2R; if(t<=s0||A===0) return 0;
+        const N=48, h=(s1-s0)/N; let full=0, part=0; for(let i=0;i<N;i++){ const a=s0+i*h, b=a+h, v=(orbitSpeed(a)+orbitSpeed(b))/2*h; full+=v; if(b<=t) part+=v; else if(a<t) part+=v*(t-a)/h; }
+        return A*(t>=s1 ? 1 : part/full); };
       var applyApproach=function(){
         const t=AP.t, e=t*t*(3-2*t);
         dist=Math.exp((1-e)*Math.log(AP.farDist())+e*Math.log(fitDist));
@@ -425,12 +450,12 @@
     let lastColors='';
     function applyColors(){
       const next={}; for(const k of COLOR_KEYS) next[k]=resolveColor(host, RAWCOLORS[k]);
-      const pin = labelStyled ? getComputedStyle(labelEl).color : next.labelColor;
+      const pin = (labelStyled && labelEl) ? getComputedStyle(labelEl).color : next.labelSecondaryColor;
       const sig=JSON.stringify([...COLOR_KEYS.map(k=>next[k]), pin]); if(sig===lastColors) return; lastColors=sig; Object.assign(CONFIG,next);
       host.style.background=CONFIG.background; for(const m of topoMats) m.uniforms.uColor.value.set(CONFIG.lineColor);
       globeMat.color.set(CONFIG.mutedColor); gratMat.color.set(CONFIG.mutedColor); stateMat.color.set(CONFIG.mutedColor); naMat.color.set(CONFIG.boundaryColor);
       surfMat.color.set(CONFIG.blockColor); L.globeMesh.material.color.set(CONFIG.blockColor); countyMat.color.set(CONFIG.countyColor);
-      if(pinMat) pinMat.color.set(pin); if(!labelStyled) labelEl.style.color=CONFIG.labelColor;
+      if(pinMat) pinMat.color.set(pin); for(const l of labels){ if(l.kind==='town'&&!labelStyled) l.el.style.color=CONFIG.labelSecondaryColor; if(l.kind==='county'&&!countyStyled) l.el.style.color=CONFIG.labelColor; }
       roadMat.color.set(CONFIG.roadColor); waterMat.color.set(CONFIG.waterColor);
       recolourFaded();
     }
@@ -438,7 +463,7 @@
     const themeWatch=setInterval(()=>{ if(alive) applyColors(); else clearInterval(themeWatch); }, 400);
     if(global.MutationObserver){ const mo=new MutationObserver(applyColors); for(const el of [document.documentElement, document.body]) if(el) mo.observe(el,{attributes:true,attributeFilter:['class','style','data-theme','data-wf-theme']}); }
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyColors);
-    let last=performance.now();
+    let last=performance.now(), lastVw=1e7;
     function frame(now){
       if(!alive) return; requestAnimationFrame(frame); const dt=(now-last)/1000; last=now; if(pendingFit) fit(); if(!visible) return;
       if(AP){
@@ -447,21 +472,22 @@
         AP.t += (AP.target-AP.t)*f; if(Math.abs(AP.target-AP.t)<0.0005) AP.t=AP.target;
         // the turntable's turn starts the moment the scroll reaches the end, on top of the orbit already under way,
         // and eases away again (never snaps) if the visitor scrolls back up
-        const atEnd=AP.target>=0.999;
+        const atEnd=AP.target>=Math.min(0.999,(+CONFIG.orbitEnd||1)-0.001);
         if(atEnd && CONFIG.rotateSeconds>0 && !reduced && !dragging && now-lastPointer>1500) spin+=dt*Math.PI*2/CONFIG.rotateSeconds;
-        else if(!atEnd && !dragging) spin*=Math.exp(-dt*1.5);
+        else if(!atEnd && !dragging){ if(wasAtEnd && CONFIG.headingShortest!==false) spin=Math.atan2(Math.sin(spin),Math.cos(spin)); spin*=Math.exp(-dt*1.5); }   // back up the track: unwind by the short way round, never by whole turns
+        wasAtEnd=atEnd;
         applyApproach();
       } else {
         if(CONFIG.rotateSeconds>0 && !reduced && !dragging && now-lastPointer>1500) spin+=dt*Math.PI*2/CONFIG.rotateSeconds;
         az=azHome()+spin; placeCam(az);
       }
-      layerFade();
+      lastVw=layerFade();
       renderer.render(scene,camera);
-      if(CONFIG.label && pinWorld){ const p=pinWorld.clone().project(camera); const behind=p.z>1; labelEl.style.opacity=behind?0:1; labelEl.style.left=((p.x+1)/2*host.clientWidth)+'px'; labelEl.style.top=((1-p.y)/2*host.clientHeight)+'px'; }
+      for(const l of labels){ const p=l.world.clone().project(camera); const a=p.z>1?0:l.fade(lastVw); l.el.style.opacity=a; l.el.style.left=((p.x+1)/2*host.clientWidth)+'px'; l.el.style.top=((1-p.y)/2*host.clientHeight)+'px'; }
     }
     requestAnimationFrame(frame);
     requestAnimationFrame(()=>setTimeout(()=>{ if(!alive) return; buildRegion(); setTimeout(()=>{ if(alive) buildLocal(); },0); },0));
-    return { destroy(){ alive=false; io.disconnect(); if(ro) ro.disconnect(); removeEventListener('resize',requestFit); clearInterval(themeWatch); renderer.dispose(); renderer.domElement.remove(); labelEl.remove(); },
+    return { destroy(){ alive=false; io.disconnect(); if(ro) ro.disconnect(); removeEventListener('resize',requestFit); clearInterval(themeWatch); renderer.dispose(); renderer.domElement.remove(); for(const l of labels) l.el.remove(); },
       setAzimuth(a){ spin=a-azHome(); }, get azimuth(){ return az; },
       // change settings in place; geometry options (intervals, roads, water, county) still need a fresh mount
       set(patch){ Object.assign(CONFIG, patch||{}); for(const k of COLOR_KEYS) if(patch&&k in patch){ RAWCOLORS[k]=patch[k]; lastColors=''; } if(patch && ('tilt' in patch || 'lens' in patch || 'fitMargin' in patch || 'labelHeight' in patch)) requestFit(); },
@@ -474,7 +500,7 @@
     if(!host) return Promise.reject(new Error('TopoTurntable: target not found'));
     const CONFIG = Object.assign({}, DEFAULTS, config||{});
     injectCSS();
-    return Promise.all([loadThree(), loadData(CONFIG.data||{})]).then(([_,DATA])=>{ const inst = build(host, CONFIG, DATA); if(!CONFIG.labelClass) host.querySelector('.topo-label')?.style.setProperty('font', CONFIG.labelFont); return inst; });
+    return Promise.all([loadThree(), loadData(CONFIG.data||{})]).then(([_,DATA])=>{ const inst = build(host, CONFIG, DATA); if(!CONFIG.labelClass) host.querySelectorAll('.topo-label').forEach(el=>{ if(!(CONFIG.countyLabelClass&&el.classList.contains('topo-label--county'))) el.style.setProperty('font', CONFIG.labelFont); }); return inst; });
   }
   function autoMount(){ document.querySelectorAll('[data-topo]').forEach(el=>{ if(el.dataset.topoMounted) return; el.dataset.topoMounted='1'; let cfg={}; try{ cfg=JSON.parse(el.dataset.config||'{}'); }catch(e){} mount(el,cfg); }); }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', autoMount); else autoMount();

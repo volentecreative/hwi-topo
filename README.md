@@ -26,12 +26,14 @@ to the value shown here.
     county:         true,       // draw the county line, draped on the relief
 
     // --- how the topo resolves (see "How the world is built") --------------
+    intervalRevealMode: 'progressive', // 'progressive' (sets fill in between existing lines as you zoom) | 'existing' (the earlier model)
+    microInterval:    25,       // progressive mode: the finest contour set ever shown, in metres
     revealStart:      550,      // view width, km, where the topo first begins to appear
     revealFull:       120,      // view width, km, where it reaches full opacity
     revealSoftness:   1,        // >1 = slower start to that reveal, <1 = quicker
     contourSpacing:   16,       // a contour set resolves in once its lines would fall this many CSS px apart
-    spacingTolerance: 0.5,      // 0 = every line of a set fades together; 1 = each line by its own slope
-    intervalBlend:    0.35,     // how wide the fade is around that spacing (fraction of it)
+    spacingTolerance: 0.2,      // 0 = every line of a set fades together; 1 = each line by its own slope
+    intervalBlend:    0.5,      // how soft each set's fade is (progressive: in log-zoom; existing: fraction of the spacing)
     minSegment:       24,       // contour lines shorter than this on screen, in px, stay out (small loops, nibs)
     localRadius:      110,      // km around the town where the topo is at full strength …
     localFeather:     1,        // … and, as a multiple of that radius, how far beyond it fades out
@@ -62,11 +64,15 @@ to the value shown here.
     roadColor:     'var(--topo-road, var(--boundary, #626362))',
     waterColor:    'var(--topo-water, var(--water, #3f6063))',
 
-    // --- the pin ---------------------------------------------------------
-    label:       'Gainesboro',  // '' hides the pin entirely
+    // --- labels ----------------------------------------------------------
+    label:       'Gainesboro',  // the anchor town: a pin at the origin; '' hides it
+    towns: [{name:'Whitleyville',lon:-85.6719,lat:36.4453},{name:'Mayfield',lon:-85.6149,lat:36.2454}],  // reference towns, pinned, in from ~130 km
+    countyLabel: 'Jackson County',   // the regional label, no pin, in the county's southern third; '' hides it
+    countyLabelClass: '',       // style it with your own classes (see below)
+    labelSecondaryColor: 'var(--topo-label-secondary, var(--label-secondary, #9a9a96))',  // the towns and their pins
     labelHeight: 0.45,          // how far the pin stands above the terrain, as a fraction of the county's half-extent
     labelClass:  '',            // style the text with your own classes instead (see below)
-    labelColor:  'var(--topo-label, var(--label, #f2f2f0))',  // ignored when labelClass is set
+    labelColor:  'var(--topo-label, var(--label, #f2f2f0))',  // the county label; ignored when countyLabelClass is set
     labelFont:   '500 15px/1 "Helvetica Neue", Helvetica, Arial, sans-serif',  // ignored when labelClass is set
 
     // --- approach: scroll-driven descent from the whole Earth --------------
@@ -78,10 +84,12 @@ to the value shown here.
     tiltEnd:         0.72,      // … and is done
     lensStart:       0,         // progress over which the lens narrows from approachLens to lens …
     lensEnd:         1,         // … and is done
-    orbitStart:      0.86,      // progress at which the camera begins its arc around the county
-    orbitAmount:     12,        // degrees of heading that arc covers by progress 1
-    landingRate:     45,        // degrees per unit of progress it is still turning at on arrival (the turntable carries on from there)
-    orbitEasing:     'velocity',// 'velocity' (arrives still moving, at landingRate) | 'smoothstep' | 'ease-in' | 'linear'
+    orbitStart:      0.9,       // progress at which the orbital speed starts ramping from 0 …
+    orbitMid:        0.95,      // … reaches half …
+    orbitEnd:        1,         // … and reaches full; the turntable continues from there
+    orbitAmount:     10,        // degrees of heading the arc covers by orbitEnd
+    orbitRamp:       'smooth',  // 'smooth' | 'linear' speed ramp
+    headingShortest: true,      // scrolling back up after a long spin unwinds by the short way round, never by whole turns
 
     // --- data ------------------------------------------------------------
     data: {},                   // { base, local, region, lines } — defaults to ./data/ next to the script
@@ -103,19 +111,20 @@ Or the no-JavaScript way — give any element `data-topo` and it mounts itself:
 
 `approach: true` opens on the whole Earth, the county facing you, and descends to the frame the
 turntable would otherwise open on. Progress 0 is the globe, 1 is the landing frame. From orbit the map
-is outlines only: the country outlines and a 15° graticule, the state lines from about 2,000 km down
-to 200 km, North America in more detail until 100 km, the county line once its shape can be read (from
-about 700 km), roads and rivers from 90 km. There is no topo at all at those scales. The contours begin
-to resolve, quietly and broadly around the county, from `revealStart` (550 km) and are fully there by
-`revealFull` (120 km) — see "How the world is built".
+is outlines only: the country outlines and a 15° graticule, the state lines (which stay, muted, all the
+way down), North America in more detail until 100 km, the county line and the county name once its
+shape can be read (from about 700 km), the reference towns from about 130 km, roads and rivers from
+90 km. There is no topo at those scales. The contours begin to resolve, quietly and broadly around the
+county, from `revealStart` (550 km) and are fully there by `revealFull` (120 km) — see "How the world
+is built".
 
 The camera holds `startHeading` (north up) through the descent. The look-at point settles on the county
 over the first 45%, the tilt comes on from `tiltStart` to `tiltEnd` (35% to 72%), and the lens narrows
-from `approachLens` to `lens`. From `orbitStart` (86%) the camera eases into a shallow arc around the
-county — `orbitAmount` degrees of heading by the end, arriving still turning at `landingRate` — and the
-turntable simply carries that motion on: nothing is reset on landing, and scrolling back up eases the
-turn away again rather than snapping. `mount()` resolves to an instance with `set({...})` for changing
-any of these in place.
+from `approachLens` to `lens`. Over the last stretch the camera's orbital speed ramps up — nothing at
+`orbitStart` (90%), half at `orbitMid` (95%), full at `orbitEnd` (100%) — so the descent is already
+curving through `orbitAmount` degrees as it arrives, and the turntable simply continues the turn:
+nothing is reset on landing. Scrolling back up eases the turn away by the short way round, never by
+whole turns. `mount()` resolves to an instance with `set({...})` for changing any of these in place.
 
 Drive it from scroll with a tall track and a sticky stage:
 
@@ -170,7 +179,10 @@ so a line is always either there, complete, or not: it fades in as one piece and
   coarsest set it belongs to, up to 1,600 m, and a set resolves in once its lines would fall
   `contourSpacing` pixels apart at the anchor. Nothing is ever replaced, only added between what is
   already there. The slope that decides it is one number per polyline (the mean along it), pulled toward
-  the region's typical slope by `spacingTolerance`, and the fade is `intervalBlend` wide.
+  the region's typical slope by `spacingTolerance`. In `progressive` mode each set fades in symmetrically
+  in log-zoom around that width, `intervalBlend` soft, and nothing finer than `microInterval` is ever
+  shown, so the coarse structure is the backbone and finer sets fill the gaps as you approach; the
+  `existing` mode keeps the earlier linear ramp.
 - **Length.** A polyline shorter than `minSegment` px on screen stays out, so no small loops or nibs.
 - **Grids.** The regional grid's lines wait until its smoothing scale (2.5 km) spans a few pixels; inside
   the county grid's extent they give way, over `handoffSoftness`, to the county grid's lines (same
