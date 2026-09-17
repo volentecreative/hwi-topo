@@ -91,11 +91,11 @@ to the value shown here.
     tiltEnd:         0.72,      // … and is done
     lensStart:       0,         // progress over which the lens narrows from approachLens to lens …
     lensEnd:         1,         // … and is done
-    orbitStart:      0.9,       // progress at which the orbital speed starts ramping from 0 …
-    orbitMid:        0.95,      // … reaches half …
-    orbitEnd:        1,         // … and reaches full; the turntable continues from there
-    orbitAmount:     10,        // degrees of heading the arc covers by orbitEnd
+    orbitStart:      0.9,       // progress at which the turntable's turn begins, at 0 speed …
+    orbitMid:        0.95,      // … reaches half speed …
+    orbitEnd:        1,         // … and full speed (rotateSeconds), which it simply keeps once landed
     orbitRamp:       'smooth',  // 'smooth' | 'linear' speed ramp
+    orbitAmount:     0,         // optional extra: degrees of heading turned with the scroll itself over the same window
     headingShortest: true,      // scrolling back up after a long spin unwinds by the short way round, never by whole turns
 
     // --- data ------------------------------------------------------------
@@ -127,10 +127,10 @@ is built".
 
 The camera holds `startHeading` (north up) through the descent. The look-at point settles on the county
 over the first 45%, the tilt comes on from `tiltStart` to `tiltEnd` (35% to 72%), and the lens narrows
-from `approachLens` to `lens`. Over the last stretch the camera's orbital speed ramps up — nothing at
-`orbitStart` (90%), half at `orbitMid` (95%), full at `orbitEnd` (100%) — so the descent is already
-curving through `orbitAmount` degrees as it arrives, and the turntable simply continues the turn:
-nothing is reset on landing. Scrolling back up eases the turn away by the short way round, never by
+from `approachLens` to `lens`. Over the last stretch the turntable's own turn begins: it is a turn in
+time, at `rotateSeconds`, and its speed ramps up with the scroll — nothing at `orbitStart` (90%), half at
+`orbitMid` (95%), full at `orbitEnd` (100%) — so the map is already turning as it arrives and simply keeps
+turning once landed. Nothing is reset on landing. Scrolling back up eases the turn away by the short way round, never by
 whole turns. `mount()` resolves to an instance with `set({...})` for changing any of these in place.
 
 `stage` lets the script choreograph the layout around the map, for the case where the map should

@@ -82,7 +82,7 @@
     "orbitStart": 0.9,
     "orbitMid": 0.95,
     "orbitEnd": 1,
-    "orbitAmount": 10,
+    "orbitAmount": 0,
     "orbitRamp": "smooth",
     "headingShortest": true,
     "data": {}
@@ -465,9 +465,9 @@
     if(CONFIG.approach){
       const lens0=()=>+CONFIG.approachLens||38, globeC=new THREE.Vector3(0,-RE,0);
       AP={ target:0, t:0, farDist(){ return 1.15*RE/Math.sin(lens0()*D2R/2); }, done(){ return this.t>=0.999; } };
-      // the descent holds startHeading; over the last stretch the camera's orbital speed ramps up — 0 at orbitStart,
-      // half at orbitMid, full at orbitEnd (linear pieces, or smoothed) — so the heading curves into the orbit
-      // through orbitAmount degrees, and the turntable simply continues the turn at its own pace from there
+      // orbitSpeed(t): the turntable's speed as a fraction, ramping 0 → ½ → 1 over orbitStart / orbitMid / orbitEnd
+      // (linear pieces, or smoothed). orbitAt(t) is an optional extra on top: orbitAmount degrees of heading turned
+      // with the scroll itself over the same window (0 by default — the turntable's own turn is the orbit)
       var orbitSpeed=function(t){ const s0=+CONFIG.orbitStart||0.9, sm=Math.max(s0+0.005,+CONFIG.orbitMid||0.95), s1=Math.max(sm+0.005,+CONFIG.orbitEnd||1); if(t<=s0) return 0; if(t>=s1) return 1;
         const sm_=CONFIG.orbitRamp==='linear' ? (u=>u) : (u=>u*u*(3-2*u)); return t<sm ? 0.5*sm_((t-s0)/(sm-s0)) : 0.5+0.5*sm_((t-sm)/(s1-sm)); };
       var orbitAt=function(t){ const s0=+CONFIG.orbitStart||0.9, s1=Math.max(s0+0.01,+CONFIG.orbitEnd||1), A=(+CONFIG.orbitAmount||0)*D2R; if(t<=s0||A===0) return 0;
@@ -520,10 +520,13 @@
         AP.t += (AP.target-AP.t)*f; if(Math.abs(AP.target-AP.t)<0.0005) AP.t=AP.target;
         // the turntable's turn starts the moment the scroll reaches the end, on top of the orbit already under way,
         // and eases away again (never snaps) if the visitor scrolls back up
-        const atEnd=AP.target>=Math.min(0.999,(+CONFIG.orbitEnd||1)-0.001);
-        if(atEnd && CONFIG.rotateSeconds>0 && !reduced && !dragging && now-lastPointer>1500) spin+=dt*Math.PI*2/CONFIG.rotateSeconds;
-        else if(!atEnd && !dragging){ if(wasAtEnd && CONFIG.headingShortest!==false) spin=Math.atan2(Math.sin(spin),Math.cos(spin)); spin*=Math.exp(-dt*1.5); }   // back up the track: unwind by the short way round, never by whole turns
-        wasAtEnd=atEnd;
+        // the turntable's turn is a turn in time, and it begins during the descent: nothing at orbitStart, half speed
+        // at orbitMid, full speed from orbitEnd on (orbitSpeed), so the landing is already turning and the idle
+        // turntable simply keeps that speed. Back up the track past orbitStart it eases away — by the short way round
+        const inOrbit=AP.t>(+CONFIG.orbitStart||0.9);
+        if(inOrbit && CONFIG.rotateSeconds>0 && !reduced && !dragging && now-lastPointer>1500) spin+=dt*Math.PI*2/CONFIG.rotateSeconds*orbitSpeed(AP.t);
+        else if(!inOrbit && !dragging){ if(wasAtEnd && CONFIG.headingShortest!==false) spin=Math.atan2(Math.sin(spin),Math.cos(spin)); spin*=Math.exp(-dt*1.5); }
+        wasAtEnd=inOrbit;
         applyApproach(); applyStage(AP.t); applyFocus(AP.t);
       } else {
         if(CONFIG.rotateSeconds>0 && !reduced && !dragging && now-lastPointer>1500) spin+=dt*Math.PI*2/CONFIG.rotateSeconds;
