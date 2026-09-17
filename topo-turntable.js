@@ -604,7 +604,7 @@
     return { destroy(){ alive=false; io.disconnect(); if(ro) ro.disconnect(); removeEventListener('resize',requestFit); clearInterval(themeWatch); renderer.dispose(); renderer.domElement.remove(); for(const l of labels) l.el.remove(); },
       setAzimuth(a){ spin=a-azHome(); }, get azimuth(){ return az; },
       // change settings in place; geometry options (intervals, roads, water, county) still need a fresh mount
-      set(patch){ renderBump++; Object.assign(CONFIG, patch||{}); for(const k of COLOR_KEYS) if(patch&&k in patch){ RAWCOLORS[k]=patch[k]; lastColors=''; } if(patch && ('tilt' in patch || 'lens' in patch || 'fitMargin' in patch || 'labelHeight' in patch)) requestFit(); },
+      set(patch){ renderBump++; Object.assign(CONFIG, patch||{}); for(const k of COLOR_KEYS) if(patch&&k in patch){ RAWCOLORS[k]=patch[k]; lastColors=''; } if(patch && ('tilt' in patch || 'lens' in patch || 'fitMargin' in patch || 'labelHeight' in patch || 'groundLabelScale' in patch || 'groundLabels' in patch)) requestFit(); },
       setProgress(t){ if(AP) AP.target=Math.min(1,Math.max(0,+t||0)); }, get progress(){ return AP?AP.t:1; },
       get state(){ return { progress: AP?AP.t:1, distance: dist, viewWidth: 2*dist*Math.tan(camera.fov*Math.PI/360)*camera.aspect, tilt: 90-pol*180/Math.PI, heading: -az*180/Math.PI, fov: camera.fov }; } };
   }
