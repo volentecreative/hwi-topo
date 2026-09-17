@@ -77,11 +77,10 @@ to the value shown here.
     countyLabel: 'Jackson County',   // the anchored callout: a dot and leader from the county's centre, its name from halfway down; '' hides it
     countyLabelClass: '',       // style it with your own classes (see below)
     labelSecondaryColor: 'var(--topo-label-secondary, var(--label-secondary, #9a9a96))',  // the towns
-    // text painted on the ground itself, so it turns with the map: the state names either side of the line.
-    // They take the town labels' type (font, weight, spacing, case) and their size at the landing frame
-    groundLabels: [{text:'Kentucky',lon:-85.65,lat:36.642},{text:'Tennessee',lon:-85.65,lat:36.616}],  // [] hides them
-    groundLabelScale:   1,      // their size relative to the town labels
-    groundLabelOpacity: 1,
+    // the state names: text like the towns' (same class and size), turned with the map so the baseline follows the
+    // state line, and held `offset` ems from the line (north positive), so they hug it at every zoom; from ~500 km down
+    groundLabels: [{text:'Kentucky',lon:-85.65,lat:36.629,offset:0.8},{text:'Tennessee',lon:-85.65,lat:36.629,offset:-0.8}],  // [] hides them
+    groundLabelClass:   '',     // defaults to labelClass
     groundLabelColor:   'var(--topo-ground-label, var(--topo-label-secondary, var(--label-secondary, #9a9a96)))',
     labelHeight: 0.45,          // how far the pin stands above the terrain, as a fraction of the county's half-extent
     labelClass:  '',            // style the text with your own classes instead (see below)
@@ -235,7 +234,7 @@ changes. `debug: 'intervals'` colours every contour set differently and `debug: 
 three reliefs and their lines by grid, for tuning only.
 first frame, so the globe is on screen while it happens, and the pixel ratio is capped at 1.5.
 
-There are no index lines; the state lines stay, in the muted colour, at every scale, with the state names painted on the ground either side of the line, arriving with the towns. Nashville, Knoxville and Louisville come in a step before the county's name, so the county arrives with its neighbours already placed.
+There are no index lines; the state lines stay, in the muted colour, at every scale, with the state names either side of the line, turned with the map, from about 500 km down. Nashville, Knoxville and Louisville come in a step before the county's name, so the county arrives with its neighbours already placed.
 
 ## Styling the labels with your own classes
 
@@ -256,11 +255,10 @@ class beats them. The county's dot, leader and outline read their colour back of
 name, so a theme switch moves the mark with the type. (`countyColor` set to anything but
 `'label'` breaks that link and colours the outline on its own.)
 
-The state names are not HTML: they are painted onto the relief, so they turn with the map and
-foreshorten with it, the way a name printed on a paper map would. They copy the town labels'
-computed type (so `labelClass` styles them too) and are sized so that at the landing frame they
-match the town labels pixel for pixel; `groundLabelScale` scales that. They are redrawn once
-the page's fonts have loaded.
+The state names are labels like the towns' (`groundLabelClass`, which defaults to `labelClass`),
+but rotated on screen so their baseline follows the state line as the map turns, the way a name
+printed on a paper map would; they never flip upside down. They sit a fixed distance from the
+line in ems, so they hug it from the first time it is legible down to the landing.
 
 In Webflow, those need to be real classes in the site stylesheet: style them on any element in
 the Designer (a hidden one is fine) so they survive publishing, then name them here.

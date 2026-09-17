@@ -63,9 +63,8 @@
     "towns": [{"name":"Whitleyville","lon":-85.6719,"lat":36.4453},{"name":"Mayfield","lon":-85.6149,"lat":36.2454}],
     "cities": [{"name":"Nashville","lon":-86.7816,"lat":36.1627},{"name":"Knoxville","lon":-83.9207,"lat":35.9606},{"name":"Louisville","lon":-85.7585,"lat":38.2527}],
     "cityLabelClass": "",
-    "groundLabels": [{"text":"Kentucky","lon":-85.65,"lat":36.642},{"text":"Tennessee","lon":-85.65,"lat":36.616}],
-    "groundLabelScale": 1,
-    "groundLabelOpacity": 1,
+    "groundLabels": [{"text":"Kentucky","lon":-85.65,"lat":36.629,"offset":0.8},{"text":"Tennessee","lon":-85.65,"lat":36.629,"offset":-0.8}],
+    "groundLabelClass": "",
     "countyLabel": "Jackson County",
     "countyLabelClass": "",
     "labelColor": "var(--topo-label, var(--label, #f2f2f0))",
@@ -187,7 +186,7 @@
     const labelEl=CONFIG.label ? mkLabel(CONFIG.label,'town',CONFIG.labelClass) : null;
     // a label class owns the type and, unless the colour option was passed explicitly, the colour too
     const given=k=>RAWCOLORS[k]!==DEFAULTS[k];
-    const labelStyled=!!CONFIG.labelClass&&!given('labelSecondaryColor'), countyStyled=!!CONFIG.countyLabelClass&&!given('labelColor'), cityStyled=!!CONFIG.cityLabelClass&&!given('labelCityColor');
+    const labelStyled=!!CONFIG.labelClass&&!given('labelSecondaryColor'), countyStyled=!!CONFIG.countyLabelClass&&!given('labelColor'), cityStyled=!!CONFIG.cityLabelClass&&!given('labelCityColor'), groundStyled=!!(CONFIG.groundLabelClass||CONFIG.labelClass)&&!given('groundLabelColor');
     host.style.background=CONFIG.background; if(getComputedStyle(host).position==='static') host.style.position='relative'; host.style.overflow='hidden';
     const RATIO = CONFIG.aspectRatio || '16 / 10';
     let derivedWidth=false;
@@ -386,36 +385,6 @@
     { const g=[]; for(let lon=-180;lon<180;lon+=15){ const r=[]; for(let lat=-90;lat<=90;lat+=2) r.push([lon,lat]); g.push(r); } for(let lat=-75;lat<=75;lat+=15){ const r=[]; for(let lon=-180;lon<=180;lon+=2) r.push([lon,lat]); g.push(r); } L.grat=drapeLL(g,gratMat,150,'cont'); }
     // the county line, draped on the fine relief and lifted clear of the contours
     L.county = CONFIG.county ? drapeLL([countyLL],countyMat,12,true,null) : null;
-    // ground labels: the state names, painted onto the relief either side of the line, so they turn and foreshorten
-    // with the map and read as part of it rather than as a caption. They take their type from the town labels (the
-    // computed font, weight, spacing and case of the styled element) and their size from the landing frame: on the
-    // ground they are as many metres as the town labels are pixels there, so at the landing they read as one family
-    // and only lie flat. A canvas per label, redrawn once the page's fonts are in; rebuilt with every fit
-    let groundMat=null; L.ground=[];
-    const groundCanvases=[];
-    const groundStyle=()=>{ const el=labels.find(l=>l.kind==='town'); const cs=el?getComputedStyle(el.el):null;
-      if(cs && cs.fontFamily){ const ls=parseFloat(cs.letterSpacing); return {family:cs.fontFamily, weight:cs.fontWeight||'400', style:cs.fontStyle||'normal', size:parseFloat(cs.fontSize)||15, spacing:isNaN(ls)?0:ls, upper:cs.textTransform==='uppercase'}; }
-      const m=String(CONFIG.labelFont).match(/(\d+(?:\.\d+)?)px[^,]*?\s(.*)$/); return {family:m?m[2]:'sans-serif', weight:'500', style:'normal', size:m?+m[1]:15, spacing:0, upper:false}; };
-    const drawGround=(cv,text,st)=>{ const ctx=cv.getContext('2d'); ctx.clearRect(0,0,cv.width,cv.height); const k=100/st.size; ctx.font=st.style+' '+st.weight+' 100px '+st.family; ctx.fillStyle='#fff'; ctx.textBaseline='middle';
-      const t=st.upper?text.toUpperCase():text, gap=st.spacing*k, ws=[...t].map(c=>ctx.measureText(c).width), total=ws.reduce((a,b)=>a+b,0)+gap*(ws.length-1);
-      const sc=Math.min(1,(cv.width-8)/total); ctx.save(); ctx.translate(cv.width/2-total*sc/2,cv.height/2); ctx.scale(sc,sc); let x=0; [...t].forEach((c,i)=>{ ctx.fillText(c,x,0); x+=ws[i]+gap; }); ctx.restore(); return total*sc/cv.width; };
-    function buildGround(){
-      for(const m of L.ground){ group.remove(m); m.geometry.dispose(); } L.ground.length=0; groundCanvases.length=0;
-      if(!(CONFIG.groundLabels && CONFIG.groundLabels.length)) return;
-      const st=groundStyle(), mpp=2*fitDist*Math.tan(CONFIG.lens*D2R/2)*camera.aspect/Math.max(1,host.clientWidth);   // ground metres per screen pixel at the landing
-      const E=st.size*mpp*(+CONFIG.groundLabelScale||1);   // the em, in metres
-      const stretch=1/Math.max(0.25,Math.sin(CONFIG.tilt*D2R));   // drawn north-south by the tilt's foreshortening, so from the resting view the letters keep the labels' proportions
-      for(const g of CONFIG.groundLabels){ if(!g||!g.text) continue; const cv=document.createElement('canvas'); cv.width=1024; cv.height=128; drawGround(cv,g.text,st);
-        const tex=new THREE.CanvasTexture(cv); tex.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy());
-        if(!groundMat) groundMat=new THREE.MeshBasicMaterial({color:CONFIG.groundLabelColor,transparent:true,depthWrite:false,side:THREE.DoubleSide,opacity:0});
-        const mat=groundMat.clone(); mat.color=groundMat.color; mat.map=tex;
-        const [cx,cy]=llToXY(+g.lon,+g.lat); const W=E*cv.width/100, H=E*cv.height/100*stretch, nx=32, ny=4, pos=[], uv=[], idx=[];
-        for(let j=0;j<=ny;j++) for(let i=0;i<=nx;i++){ const u=i/nx, v=j/ny, x=cx+(u-0.5)*W, y=cy+(v-0.5)*H; const P=toWorld(x,y,heightAt(x,y)+40); pos.push(P[0],P[1],P[2]); uv.push(u,v); }
-        for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){ const a=j*(nx+1)+i, b=a+1, c=a+nx+1, d=c+1; idx.push(a,b,c, b,d,c); }
-        const geo=new THREE.BufferGeometry(); geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3)); geo.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2)); geo.setIndex(idx);
-        const m=new THREE.Mesh(geo,mat); m.renderOrder=2; group.add(m); L.ground.push(m); groundCanvases.push({cv,tex,text:g.text}); }
-    }
-    if(document.fonts && document.fonts.ready) document.fonts.ready.then(()=>{ if(!alive||!L.ground.length) return; const st=groundStyle(); for(const c of groundCanvases){ drawGround(c.cv,c.text,st); c.tex.needsUpdate=true; } renderBump++; });
     // highways and rivers (local metres), draped
     const drapeXY=(feats,mat,lift,fade)=>{ const arr=[],fad=[]; for(const f of feats) for(let i=1;i<f.pts.length;i++){ const p=f.pts[i-1],q=f.pts[i]; const P=toWorld(p[0],p[1],heightAt(p[0],p[1])+lift),Q=toWorld(q[0],q[1],heightAt(q[0],q[1])+lift); arr.push(P[0],P[1],P[2],Q[0],Q[1],Q[2]); if(fade) fad.push(fade(p[0],p[1]),fade(q[0],q[1])); } return segs(arr,mat,fade?fad:null); };
     L.roads = CONFIG.roads ? drapeXY(OSM.roads,roadMat,6,edgeFade) : null;
@@ -436,7 +405,15 @@
     const cityFade=(vw)=>1-smooth(1.6e6,2.3e6,vw);
     for(const c of (CONFIG.cities||[])){ if(!c||!c.name) continue; const [x,y]=llToXY(+c.lon,+c.lat);
       labels.push({el:mkLabel(c.name,'city',CONFIG.cityLabelClass), kind:'city', world:new THREE.Vector3(...toWorld(x,y,heightAt(x,y)+R*0.05/EX)), fade:cityFade}); }
-    for(const l of labels) if(l.kind==='town'||l.kind==='city') l.el.classList.add('topo-label--place');
+    // the state names: text like the towns' (same class, same size), but turned with the map — their baseline follows
+    // the line's east–west run on screen, so they read as printed on the map rather than as captions — and held a
+    // fixed distance (offset, in ems, north positive) from the line, so they hug it at every zoom. From ~500 km down
+    const groundFade=(vw)=>1-smooth(3.5e5,6e5,vw);
+    for(const g of (CONFIG.groundLabels||[])){ if(!g||!g.text) continue; const [x,y]=llToXY(+g.lon,+g.lat), h=heightAt(x,y)+R*0.05/EX;
+      labels.push({el:mkLabel(g.text,'ground',CONFIG.groundLabelClass||CONFIG.labelClass), kind:'ground', world:new THREE.Vector3(...toWorld(x,y,h)), east:new THREE.Vector3(...toWorld(x+2000,y,h)), north:new THREE.Vector3(...toWorld(x,y+2000,h)), offset:+g.offset||0, fade:groundFade}); }
+    for(const l of labels) if(l.kind==='town'||l.kind==='city'||l.kind==='ground') l.el.classList.add('topo-label--place');
+    for(const l of labels) if(l.kind==='ground') l.el.classList.add('topo-label--ground');
+    if(!groundStyled) for(const l of labels) if(l.kind==='ground') l.el.style.color=CONFIG.groundLabelColor;
     for(const l of labels) if(l.kind==='city') l.el.classList.add('topo-label--city');
     if(!cityStyled) for(const l of labels) if(l.kind==='city') l.el.style.color=CONFIG.labelCityColor;
     if(!labelStyled) for(const l of labels) if(l.kind==='town') l.el.style.color=CONFIG.labelSecondaryColor;
@@ -473,7 +450,7 @@
       const fr=focusAt(1), roomX=2*Math.min(fr.x,1-fr.x), roomY=2*Math.min(fr.y,1-fr.y);
       for(let i=0;i<4;i++){ const b=measure(); const ext=Math.max((b.maxX-b.minX)/2/Math.max(0.1,roomX),(b.maxY-b.minY)/2/Math.max(0.1,roomY))/margin; if(ext>0) dist*=ext; }
       const b=measure(); const cy=(b.minY+b.maxY)/2; pivot.y += cy*dist*Math.tan(camera.fov*Math.PI/360)*0.9; pivotHome.copy(pivot);
-      fitDist=dist; setFrustum(); renderBump++; buildGround();
+      fitDist=dist; setFrustum(); renderBump++;
       if(AP) applyApproach(); else placeCam(az);
     }
     function setFrustum(){ camera.near=Math.max(1,dist*0.02); camera.far=dist*6+RE*3; camera.updateProjectionMatrix(); }
@@ -488,7 +465,6 @@
       const county=kmIn(2.0e6,1.2e6);   // the county line, from about halfway down: a small ring round the dot at first
       set(L.globe,0.9,globe); set(L.grat,0.6,grat); set(L.na,0.85,naA); set(L.states,0.8,states);
       set(L.county,1,county); set(L.roads,0.85,fine); set(L.water,0.95,fine);
-      for(const m of L.ground) set(m,CONFIG.groundLabelOpacity??1,fine>0?near:0);   // the state names, with the towns
       // the contours (see topoMat): pixels per metre at the anchor, discounted a little for the tilt's foreshortening
       const ppmR=(host.clientWidth||1)/(2*dist*Math.tan(camera.fov*D2R/2)*camera.aspect), ppm=ppmR*Math.sqrt(Math.max(0.15,Math.cos(pol)));
       const C=CONFIG, dbg=C.debug==='intervals'?1:C.debug==='grids'?2:0;
@@ -561,7 +537,7 @@
       host.style.background=CONFIG.background; for(const m of topoMats){ m.uniforms.uColor.value.set(CONFIG.lineColor); m.uniforms.uCoarse.value.set(CONFIG.coarseColor); }
       globeMat.color.set(CONFIG.mutedColor); gratMat.color.set(CONFIG.mutedColor); stateMat.color.set(CONFIG.mutedColor); naMat.color.set(CONFIG.boundaryColor);
       surfMat.color.set(CONFIG.blockColor); L.globeMesh.material.color.set(CONFIG.blockColor); countyMat.color.set(CONFIG.countyColor==='label' ? pin : CONFIG.countyColor);
-      if(pinMat) pinMat.color.set(pin); if(groundMat) groundMat.color.set(CONFIG.groundLabelColor); for(const l of labels){ if(l.kind==='town'&&!labelStyled) l.el.style.color=CONFIG.labelSecondaryColor; if(l.kind==='county'&&!countyStyled) l.el.style.color=CONFIG.labelColor; if(l.kind==='city'&&!cityStyled) l.el.style.color=CONFIG.labelCityColor; }
+      if(pinMat) pinMat.color.set(pin); for(const l of labels){ if(l.kind==='ground'&&!groundStyled) l.el.style.color=CONFIG.groundLabelColor; if(l.kind==='town'&&!labelStyled) l.el.style.color=CONFIG.labelSecondaryColor; if(l.kind==='county'&&!countyStyled) l.el.style.color=CONFIG.labelColor; if(l.kind==='city'&&!cityStyled) l.el.style.color=CONFIG.labelCityColor; }
       roadMat.color.set(CONFIG.roadColor); waterMat.color.set(CONFIG.waterColor);
       recolourFaded();
     }
@@ -597,7 +573,12 @@
       if(key===renderKey) return; renderKey=key;
       lastVw=layerFade();
       renderer.render(scene,camera);
-      for(const l of labels){ const p=l.world.clone().project(camera); const a=p.z>1?0:l.fade(lastVw); l.el.style.opacity=a; if(l.text) l.el.firstChild.style.opacity=l.text(lastVw); l.el.style.left=((p.x+1)/2*host.clientWidth)+'px'; l.el.style.top=((1-p.y)/2*host.clientHeight)+'px'; }
+      const W=host.clientWidth, Hh=host.clientHeight;
+      for(const l of labels){ const p=l.world.clone().project(camera); const a=p.z>1?0:l.fade(lastVw); l.el.style.opacity=a; if(l.text) l.el.firstChild.style.opacity=l.text(lastVw); let sx=(p.x+1)/2*W, sy=(1-p.y)/2*Hh;
+        if(l.kind==='ground'){ const e=l.east.clone().project(camera), n=l.north.clone().project(camera); const ex=(e.x-p.x)*W, ey=-(e.y-p.y)*Hh, nx=(n.x-p.x)*W, ny=-(n.y-p.y)*Hh, nl=Math.hypot(nx,ny)||1;
+          let th=Math.atan2(ey,ex); if(Math.cos(th)<0) th+=Math.PI;   // never upside down: flip when the east vector points left
+          const em=l.el.offsetHeight||14; sx+=nx/nl*em*l.offset; sy+=ny/nl*em*l.offset; l.el.style.transform='translate(-50%,-50%) rotate('+th.toFixed(4)+'rad)'; }
+        l.el.style.left=sx+'px'; l.el.style.top=sy+'px'; }
     }
     requestAnimationFrame(frame);
     requestAnimationFrame(()=>setTimeout(()=>{ if(!alive) return; buildRegion(); setTimeout(()=>{ if(alive) buildLocal(); },0); },0));
