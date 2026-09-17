@@ -64,16 +64,25 @@ to the value shown here.
     mutedColor:    'var(--topo-muted, #3f4040)',                    // the graticule and the rest of the world's outlines
     boundaryColor: 'var(--topo-boundary, var(--boundary, #626362))', // country outlines
     blockColor:    'var(--topo-block, var(--map-bg, #222322))',     // the relief under the lines, and the globe
-    countyColor:   'var(--topo-county, var(--boundary, #626362))',
+    countyColor:   'var(--topo-county, label)',                     // 'label': the same colour as the county's name
     roadColor:     'var(--topo-road, var(--boundary, #626362))',
     waterColor:    'var(--topo-water, var(--water, #3f6063))',
 
     // --- labels ----------------------------------------------------------
     label:       'Gainesboro',  // the anchor town: text only, from ~130 km; '' hides it
     towns: [{name:'Whitleyville',lon:-85.6719,lat:36.4453},{name:'Mayfield',lon:-85.6149,lat:36.2454}],  // reference towns, text only, from ~130 km
+    cities: [{name:'Nashville',lon:-86.7816,lat:36.1627},{name:'Knoxville',lon:-83.9207,lat:35.9606},{name:'Louisville',lon:-85.7585,lat:38.2527}],  // text only, a step before the county's name; [] hides them
+    cityLabelClass: '',         // style them with your own classes (see below)
+    labelCityColor: 'var(--topo-label-city, var(--label-city, #c4c4c0))',  // the cities; ignored when cityLabelClass is set
     countyLabel: 'Jackson County',   // the anchored callout: a dot and leader from the county's centre, its name from halfway down; '' hides it
     countyLabelClass: '',       // style it with your own classes (see below)
     labelSecondaryColor: 'var(--topo-label-secondary, var(--label-secondary, #9a9a96))',  // the towns
+    // text painted on the ground itself, so it turns with the map: the state names either side of the line
+    groundLabels: [{text:'KENTUCKY',lon:-85.65,lat:36.672,width:24},{text:'TENNESSEE',lon:-85.65,lat:36.586,width:24}],  // width in km; [] hides them
+    groundLabelFont:    '500 100px "Helvetica Neue", Helvetica, Arial, sans-serif',  // a canvas font string; the size only sets the drawing resolution
+    groundLabelSpacing: 0.18,   // letter-spacing, in ems
+    groundLabelOpacity: 0.8,
+    groundLabelColor:   'var(--topo-ground-label, var(--topo-label-secondary, var(--label-secondary, #9a9a96)))',
     labelHeight: 0.45,          // how far the pin stands above the terrain, as a fraction of the county's half-extent
     labelClass:  '',            // style the text with your own classes instead (see below)
     labelColor:  'var(--topo-label, var(--label, #f2f2f0))',  // the county label and its dot and leader; ignored when countyLabelClass is set
@@ -226,12 +235,13 @@ changes. `debug: 'intervals'` colours every contour set differently and `debug: 
 three reliefs and their lines by grid, for tuning only.
 first frame, so the globe is on screen while it happens, and the pixel ratio is capped at 1.5.
 
-There are no index lines; the state lines are back, in the muted colour, for the wide views.
+There are no index lines; the state lines stay, in the muted colour, at every scale, with the state names painted on the ground either side of the line from a few hundred km down. Nashville, Knoxville and Louisville come in a step before the county's name, so the county arrives with its neighbours already placed.
 
-## Styling the label with your own classes
+## Styling the labels with your own classes
 
-`labelClass` puts your classes on the pin's text element, so the type is styled once in your
-stylesheet rather than repeated in every embed:
+`labelClass` puts your classes on the town labels, `cityLabelClass` on the cities and
+`countyLabelClass` on the county's name, so the type is styled once in your stylesheet rather
+than repeated in every embed:
 
 ```js
 TopoTurntable.mount('#topo', {
@@ -241,8 +251,14 @@ TopoTurntable.mount('#topo', {
 
 The classes own the label completely — the script writes no inline font or colour that could
 override them, and its own defaults (letter-spacing, padding) sit at zero specificity so any
-class beats them. The pin's line and dot read their colour back off the styled text, so a
-theme switch moves the mark with the type.
+class beats them. The county's dot, leader and outline read their colour back off the styled
+name, so a theme switch moves the mark with the type. (`countyColor` set to anything but
+`'label'` breaks that link and colours the outline on its own.)
+
+The state names are not HTML: they are painted onto the relief, so they turn with the map and
+foreshorten with it, the way a name printed on a paper map would. `groundLabelFont` is a canvas
+font string, so a web font on the page can be named there; they are redrawn once the page's
+fonts have loaded.
 
 In Webflow, those need to be real classes in the site stylesheet: style them on any element in
 the Designer (a hidden one is fine) so they survive publishing, then name them here.

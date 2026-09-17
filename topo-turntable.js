@@ -50,7 +50,7 @@
     "mutedColor": "var(--topo-muted, #3f4040)",
     "boundaryColor": "var(--topo-boundary, var(--boundary, #626362))",
     "blockColor": "var(--topo-block, var(--map-bg, #222322))",
-    "countyColor": "var(--topo-county, var(--boundary, #626362))",
+    "countyColor": "var(--topo-county, label)",
     "county": true,
     "localInterval": 12.5,
     "regionInterval": 10,
@@ -61,10 +61,18 @@
     "waterColor": "var(--topo-water, var(--water, #3f6063))",
     "label": "Gainesboro",
     "towns": [{"name":"Whitleyville","lon":-85.6719,"lat":36.4453},{"name":"Mayfield","lon":-85.6149,"lat":36.2454}],
+    "cities": [{"name":"Nashville","lon":-86.7816,"lat":36.1627},{"name":"Knoxville","lon":-83.9207,"lat":35.9606},{"name":"Louisville","lon":-85.7585,"lat":38.2527}],
+    "cityLabelClass": "",
+    "groundLabels": [{"text":"KENTUCKY","lon":-85.65,"lat":36.672,"width":24},{"text":"TENNESSEE","lon":-85.65,"lat":36.586,"width":24}],
+    "groundLabelFont": "500 100px \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+    "groundLabelSpacing": 0.18,
+    "groundLabelOpacity": 0.8,
     "countyLabel": "Jackson County",
     "countyLabelClass": "",
     "labelColor": "var(--topo-label, var(--label, #f2f2f0))",
     "labelSecondaryColor": "var(--topo-label-secondary, var(--label-secondary, #9a9a96))",
+    "labelCityColor": "var(--topo-label-city, var(--label-city, #c4c4c0))",
+    "groundLabelColor": "var(--topo-ground-label, var(--topo-label-secondary, var(--label-secondary, #9a9a96)))",
     "labelHeight": 0.45,
     "labelFont": "500 15px/1 \"Helvetica Neue\", Helvetica, Arial, sans-serif",
     "labelClass": "",
@@ -122,7 +130,7 @@
       .then(([local,region,cont,lines])=>({local,region,cont,lines}));
   }
 
-  const COLOR_KEYS = ['background','lineColor','coarseColor','mutedColor','boundaryColor','blockColor','labelColor','labelSecondaryColor','countyColor','roadColor','waterColor'];
+  const COLOR_KEYS = ['background','lineColor','coarseColor','mutedColor','boundaryColor','blockColor','labelColor','labelSecondaryColor','labelCityColor','groundLabelColor','countyColor','roadColor','waterColor'];
   function resolveColor(host, v){
     if(typeof v!=='string') return v;
     const m = v.match(/^var\(\s*(--[\w-]+)\s*(?:,\s*(.+?)\s*)?\)$/);
@@ -178,7 +186,7 @@
     const labels=[];   // {el, kind, world:Vector3, fade}
     const mkLabel=(text,kind,cls)=>{ const el=document.createElement('div'); el.className='topo-label'+(kind==='county'?' topo-label--county':'')+(cls?' '+cls:''); const sp=document.createElement('span'); sp.textContent=text; el.appendChild(sp); host.appendChild(el); return el; };
     const labelEl=CONFIG.label ? mkLabel(CONFIG.label,'town',CONFIG.labelClass) : null;
-    const labelStyled=!!CONFIG.labelClass, countyStyled=!!CONFIG.countyLabelClass;
+    const labelStyled=!!CONFIG.labelClass, countyStyled=!!CONFIG.countyLabelClass, cityStyled=!!CONFIG.cityLabelClass;
     host.style.background=CONFIG.background; if(getComputedStyle(host).position==='static') host.style.position='relative'; host.style.overflow='hidden';
     const RATIO = CONFIG.aspectRatio || '16 / 10';
     let derivedWidth=false;
@@ -251,7 +259,8 @@
           gl_FragColor=vec4(c,a);
         }`,
       transparent:true, depthWrite:true, depthFunc:THREE.LessDepth, depthTest:depthTest }); topoMats.push(m); return m; };
-    const countyMat=new THREE.LineBasicMaterial({color:CONFIG.countyColor,transparent:true,opacity:1});
+    const countyColor=()=>CONFIG.countyColor==='label' ? CONFIG.labelColor : CONFIG.countyColor;   // 'label': the same colour as the county's name
+    const countyMat=new THREE.LineBasicMaterial({color:countyColor(),transparent:true,opacity:1});
     const naMat=new THREE.LineBasicMaterial({color:CONFIG.boundaryColor,transparent:true,opacity:0.85});
     const globeMat=new THREE.LineBasicMaterial({color:CONFIG.mutedColor,transparent:true,opacity:0.9}), gratMat=new THREE.LineBasicMaterial({color:CONFIG.mutedColor,transparent:true,opacity:0.6}), stateMat=new THREE.LineBasicMaterial({color:CONFIG.mutedColor,transparent:true,opacity:0.9});
     const roadMat=new THREE.LineBasicMaterial({color:CONFIG.roadColor,transparent:true,opacity:0.85}), waterMat=new THREE.LineBasicMaterial({color:CONFIG.waterColor,transparent:true,opacity:0.95});
@@ -376,6 +385,25 @@
     { const g=[]; for(let lon=-180;lon<180;lon+=15){ const r=[]; for(let lat=-90;lat<=90;lat+=2) r.push([lon,lat]); g.push(r); } for(let lat=-75;lat<=75;lat+=15){ const r=[]; for(let lon=-180;lon<=180;lon+=2) r.push([lon,lat]); g.push(r); } L.grat=drapeLL(g,gratMat,150,'cont'); }
     // the county line, draped on the fine relief and lifted clear of the contours
     L.county = CONFIG.county ? drapeLL([countyLL],countyMat,12,true,null) : null;
+    // ground labels: text painted onto the relief either side of a line, so it turns with the map and reads as part
+    // of it rather than as a caption. A canvas per label (redrawn once the page's fonts are in), on a small draped
+    // grid lifted just clear of the contours; sized in ground metres, so it is a whisper from orbit and a banner up close
+    let groundMat=null; L.ground=[];
+    const groundCanvases=[];
+    const drawGround=(cv,text)=>{ const ctx=cv.getContext('2d'); ctx.clearRect(0,0,cv.width,cv.height); ctx.font=CONFIG.groundLabelFont; ctx.fillStyle='#fff'; ctx.textBaseline='middle';
+      const px=parseFloat((ctx.font.match(/(\d+(?:\.\d+)?)px/)||[0,100])[1]), gap=px*(+CONFIG.groundLabelSpacing||0); const ws=[...text].map(c=>ctx.measureText(c).width); const total=ws.reduce((a,b)=>a+b,0)+gap*(ws.length-1);
+      const sc=Math.min(1,(cv.width-8)/total); ctx.save(); ctx.translate(cv.width/2-total*sc/2,cv.height/2); ctx.scale(sc,sc); let x=0; [...text].forEach((c,i)=>{ ctx.fillText(c,x,0); x+=ws[i]+gap; }); ctx.restore(); return total*sc/cv.width; };
+    if(CONFIG.groundLabels && CONFIG.groundLabels.length){
+      groundMat=null;
+      for(const g of CONFIG.groundLabels){ if(!g||!g.text) continue; const cv=document.createElement('canvas'); cv.width=1024; cv.height=128; const frac=drawGround(cv,g.text);
+        const tex=new THREE.CanvasTexture(cv); tex.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy()); const mat=new THREE.MeshBasicMaterial({map:tex,color:CONFIG.groundLabelColor,transparent:true,depthWrite:false,side:THREE.DoubleSide,opacity:0}); if(!groundMat) groundMat=mat; else mat.color=groundMat.color;
+        const [cx,cy]=llToXY(+g.lon,+g.lat); const W=(+g.width||30)*1000/Math.max(0.05,frac), H=W*cv.height/cv.width, nx=32, ny=4, pos=[], uv=[], idx=[];
+        for(let j=0;j<=ny;j++) for(let i=0;i<=nx;i++){ const u=i/nx, v=j/ny, x=cx+(u-0.5)*W, y=cy+(v-0.5)*H; const P=toWorld(x,y,heightAt(x,y)+90); pos.push(P[0],P[1],P[2]); uv.push(u,v); }
+        for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){ const a=j*(nx+1)+i, b=a+1, c=a+nx+1, d=c+1; idx.push(a,b,c, b,d,c); }
+        const geo=new THREE.BufferGeometry(); geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3)); geo.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2)); geo.setIndex(idx);
+        const m=new THREE.Mesh(geo,mat); m.renderOrder=2; m.frustumCulled=true; group.add(m); L.ground.push(m); groundCanvases.push({cv,tex,text:g.text}); }
+      if(document.fonts && document.fonts.ready) document.fonts.ready.then(()=>{ if(!alive) return; for(const c of groundCanvases){ drawGround(c.cv,c.text); c.tex.needsUpdate=true; } renderBump++; });
+    }
     // highways and rivers (local metres), draped
     const drapeXY=(feats,mat,lift,fade)=>{ const arr=[],fad=[]; for(const f of feats) for(let i=1;i<f.pts.length;i++){ const p=f.pts[i-1],q=f.pts[i]; const P=toWorld(p[0],p[1],heightAt(p[0],p[1])+lift),Q=toWorld(q[0],q[1],heightAt(q[0],q[1])+lift); arr.push(P[0],P[1],P[2],Q[0],Q[1],Q[2]); if(fade) fad.push(fade(p[0],p[1]),fade(q[0],q[1])); } return segs(arr,mat,fade?fad:null); };
     L.roads = CONFIG.roads ? drapeXY(OSM.roads,roadMat,6,edgeFade) : null;
@@ -392,7 +420,13 @@
     if(CONFIG.label){ labelEl.classList.add('topo-label--place'); labels.push({el:labelEl, kind:'town', world:new THREE.Vector3(...toWorld(0,0,heightAt(0,0)+R*0.05/EX)), fade:townFade}); }
     for(const t of (CONFIG.towns||[])){ if(!t||!t.name) continue; const [x,y]=llToXY(+t.lon,+t.lat); if(!inLocal(x,y)) continue;
       labels.push({el:mkLabel(t.name,'town',CONFIG.labelClass), kind:'town', world:new THREE.Vector3(...toWorld(x,y,heightAt(x,y)+R*0.05/EX)), fade:townFade}); }
-    for(const l of labels) if(l.kind==='town') l.el.classList.add('topo-label--place');
+    // the cities: text only, a little before the county's name — the county then arrives with its neighbours already named
+    const cityFade=(vw)=>1-smooth(1.6e6,2.3e6,vw);
+    for(const c of (CONFIG.cities||[])){ if(!c||!c.name) continue; const [x,y]=llToXY(+c.lon,+c.lat);
+      labels.push({el:mkLabel(c.name,'city',CONFIG.cityLabelClass), kind:'city', world:new THREE.Vector3(...toWorld(x,y,heightAt(x,y)+R*0.05/EX)), fade:cityFade}); }
+    for(const l of labels) if(l.kind==='town'||l.kind==='city') l.el.classList.add('topo-label--place');
+    for(const l of labels) if(l.kind==='city') l.el.classList.add('topo-label--city');
+    if(!cityStyled) for(const l of labels) if(l.kind==='city') l.el.style.color=CONFIG.labelCityColor;
     if(!labelStyled) for(const l of labels) if(l.kind==='town') l.el.style.color=CONFIG.labelSecondaryColor;
     if(!countyStyled) for(const l of labels) if(l.kind==='county') l.el.style.color=CONFIG.labelColor;
     // ---- camera + fit: frame the county's box, over a full turn, so nothing clips as it rotates
@@ -442,6 +476,7 @@
       const county=kmIn(2.0e6,1.2e6);   // the county line, from about halfway down: a small ring round the dot at first
       set(L.globe,0.9,globe); set(L.grat,0.6,grat); set(L.na,0.85,naA); set(L.states,0.8,states);
       set(L.county,1,county); set(L.roads,0.85,fine); set(L.water,0.95,fine);
+      const gnd=kmIn(6e5,3.5e5); for(const m of L.ground) set(m,CONFIG.groundLabelOpacity??0.8,gnd);   // the state names, once the frame is down to a few states
       // the contours (see topoMat): pixels per metre at the anchor, discounted a little for the tilt's foreshortening
       const ppmR=(host.clientWidth||1)/(2*dist*Math.tan(camera.fov*D2R/2)*camera.aspect), ppm=ppmR*Math.sqrt(Math.max(0.15,Math.cos(pol)));
       const C=CONFIG, dbg=C.debug==='intervals'?1:C.debug==='grids'?2:0;
@@ -513,8 +548,8 @@
       const sig=JSON.stringify([...COLOR_KEYS.map(k=>next[k]), pin]); if(sig===lastColors) return; lastColors=sig; Object.assign(CONFIG,next);
       host.style.background=CONFIG.background; for(const m of topoMats){ m.uniforms.uColor.value.set(CONFIG.lineColor); m.uniforms.uCoarse.value.set(CONFIG.coarseColor); }
       globeMat.color.set(CONFIG.mutedColor); gratMat.color.set(CONFIG.mutedColor); stateMat.color.set(CONFIG.mutedColor); naMat.color.set(CONFIG.boundaryColor);
-      surfMat.color.set(CONFIG.blockColor); L.globeMesh.material.color.set(CONFIG.blockColor); countyMat.color.set(CONFIG.countyColor);
-      if(pinMat) pinMat.color.set(pin); for(const l of labels){ if(l.kind==='town'&&!labelStyled) l.el.style.color=CONFIG.labelSecondaryColor; if(l.kind==='county'&&!countyStyled) l.el.style.color=CONFIG.labelColor; }
+      surfMat.color.set(CONFIG.blockColor); L.globeMesh.material.color.set(CONFIG.blockColor); countyMat.color.set(CONFIG.countyColor==='label' ? pin : CONFIG.countyColor);
+      if(pinMat) pinMat.color.set(pin); if(groundMat) groundMat.color.set(CONFIG.groundLabelColor); for(const l of labels){ if(l.kind==='town'&&!labelStyled) l.el.style.color=CONFIG.labelSecondaryColor; if(l.kind==='county'&&!countyStyled) l.el.style.color=CONFIG.labelColor; if(l.kind==='city'&&!cityStyled) l.el.style.color=CONFIG.labelCityColor; }
       roadMat.color.set(CONFIG.roadColor); waterMat.color.set(CONFIG.waterColor);
       recolourFaded();
     }
