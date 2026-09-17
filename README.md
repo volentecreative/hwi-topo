@@ -250,7 +250,8 @@ TopoTurntable.mount('#topo', {
 ```
 
 The classes own the label completely — the script writes no inline font or colour that could
-override them, and its own defaults (letter-spacing, padding) sit at zero specificity so any
+override them (a colour option passed explicitly alongside a class is the one exception: it is
+still written, for a colour the class list cannot express), and its own defaults (letter-spacing, padding) sit at zero specificity so any
 class beats them. The county's dot, leader and outline read their colour back off the styled
 name, so a theme switch moves the mark with the type. (`countyColor` set to anything but
 `'label'` breaks that link and colours the outline on its own.)

@@ -186,7 +186,9 @@
     const labels=[];   // {el, kind, world:Vector3, fade}
     const mkLabel=(text,kind,cls)=>{ const el=document.createElement('div'); el.className='topo-label'+(kind==='county'?' topo-label--county':'')+(cls?' '+cls:''); const sp=document.createElement('span'); sp.textContent=text; el.appendChild(sp); host.appendChild(el); return el; };
     const labelEl=CONFIG.label ? mkLabel(CONFIG.label,'town',CONFIG.labelClass) : null;
-    const labelStyled=!!CONFIG.labelClass, countyStyled=!!CONFIG.countyLabelClass, cityStyled=!!CONFIG.cityLabelClass;
+    // a label class owns the type and, unless the colour option was passed explicitly, the colour too
+    const given=k=>RAWCOLORS[k]!==DEFAULTS[k];
+    const labelStyled=!!CONFIG.labelClass&&!given('labelSecondaryColor'), countyStyled=!!CONFIG.countyLabelClass&&!given('labelColor'), cityStyled=!!CONFIG.cityLabelClass&&!given('labelCityColor');
     host.style.background=CONFIG.background; if(getComputedStyle(host).position==='static') host.style.position='relative'; host.style.overflow='hidden';
     const RATIO = CONFIG.aspectRatio || '16 / 10';
     let derivedWidth=false;
