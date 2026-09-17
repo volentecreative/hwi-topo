@@ -70,6 +70,7 @@
     "approachScroll": "",
     "approachLens": 38,
     "approachDamping": 0.12,
+    "stage": null,
     "tiltStart": 0.35,
     "tiltEnd": 0.72,
     "lensStart": 0,
@@ -422,6 +423,25 @@
       for(let i=0;i<3;i++) surfMats[i].color.set(dbg===2 ? ['#3a2e2e','#2e3a2e','#2e2e3a'][i] : C.blockColor);
       return vw;
     }
+    const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+    // ---- stage: when asked to (the stage option), the script moves the map's own box and fades the copy in as the
+    // descent progresses — on desktop the box starts centred in the viewport and slides to wherever the layout puts
+    // it; on narrow screens it starts at full height and shrinks to the height the layout gives it. A progress-
+    // linked layout change is not something a style panel can express, which is why it lives here; the static
+    // layout is untouched (nothing is set at progress 1), so the Designer canvas shows the resting state.
+    let stageEls=null, stageX=0;
+    function applyStage(t){
+      const S=CONFIG.stage; if(!S) return;
+      if(!stageEls){ stageEls={ move:S.move?document.querySelector(S.move):null, reveal:S.reveal?document.querySelector(S.reveal):null }; }
+      const s0=+S.start||0.45, s1=Math.max(s0+0.01,+S.end||0.7), e=reduced?1:smooth(s0,s1,t), done=e>=0.999;
+      const narrow=!!(global.matchMedia && global.matchMedia('(max-width: '+(+S.breakpoint||991)+'px)').matches);
+      const el=stageEls.move;
+      if(el){
+        if(narrow){ stageX=0; el.style.transform=''; const a=parseFloat(S.heightFrom??100), b=parseFloat(S.heightTo??50); el.style.height = done ? '' : (a+(b-a)*e).toFixed(2)+'%'; }
+        else { el.style.height=''; const r=el.getBoundingClientRect(); const left0=r.left-stageX; const dx=(global.innerWidth/2)-(left0+r.width/2); stageX=done?0:dx*(1-e); el.style.transform = stageX ? 'translateX('+stageX.toFixed(1)+'px)' : ''; }
+      }
+      if(stageEls.reveal) stageEls.reveal.style.opacity = done ? '' : e.toFixed(3);
+    }
     // ---- approach: from the whole Earth, town facing us, down to the fitted frame
     let AP=null;
     if(CONFIG.approach){
@@ -444,6 +464,7 @@
         const q=1-smooth(0,0.45,t); pivot.copy(pivotHome).lerp(globeC,q);
         setFrustum(); placeCam(az);
       };
+      if(CONFIG.stage && CONFIG.stage.reveal && !reduced){ const el=document.querySelector(CONFIG.stage.reveal); if(el) el.style.opacity='0'; }
       const track=CONFIG.approachScroll ? document.querySelector(CONFIG.approachScroll) : null;
       AP.readScroll=()=>{ if(!track) return; const r=track.getBoundingClientRect(); const span=r.height-innerHeight; AP.target = span>0 ? Math.min(1,Math.max(0,-r.top/span)) : 1; };
       AP.readScroll();
@@ -454,7 +475,6 @@
     const ro = global.ResizeObserver ? new ResizeObserver(requestFit) : null; if(ro) ro.observe(host);
     if(!CONFIG.dragToOrbit) renderer.domElement.style.pointerEvents='none';
     if(CONFIG.dragToOrbit){ const el=renderer.domElement; el.style.cursor='grab'; el.addEventListener('pointerdown',e=>{ if(AP&&!AP.done()) return; dragging={x:e.clientX}; el.setPointerCapture(e.pointerId); }); el.addEventListener('pointermove',e=>{ if(dragging){ spin-=(e.clientX-dragging.x)*0.006; dragging.x=e.clientX; lastPointer=performance.now(); } }); el.addEventListener('pointerup',()=>dragging=null); }
-    const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
     let visible=true;
     const io=new IntersectionObserver(en=>visible=en[0].isIntersecting); io.observe(host);
     let lastColors='';
@@ -486,7 +506,7 @@
         if(atEnd && CONFIG.rotateSeconds>0 && !reduced && !dragging && now-lastPointer>1500) spin+=dt*Math.PI*2/CONFIG.rotateSeconds;
         else if(!atEnd && !dragging){ if(wasAtEnd && CONFIG.headingShortest!==false) spin=Math.atan2(Math.sin(spin),Math.cos(spin)); spin*=Math.exp(-dt*1.5); }   // back up the track: unwind by the short way round, never by whole turns
         wasAtEnd=atEnd;
-        applyApproach();
+        applyApproach(); applyStage(AP.t);
       } else {
         if(CONFIG.rotateSeconds>0 && !reduced && !dragging && now-lastPointer>1500) spin+=dt*Math.PI*2/CONFIG.rotateSeconds;
         az=azHome()+spin; placeCam(az);

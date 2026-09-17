@@ -80,6 +80,8 @@ to the value shown here.
     approachScroll:  '',        // selector of the tall track the stage is stuck inside; progress follows its scroll
     approachLens:    38,        // field of view at the top; it narrows to `lens` on the way down
     approachDamping: 0.12,      // how quickly the view follows the scroll (1 = instantly)
+    stage: null,                // let the script move the map's own box with the descent — see below; e.g.
+                                // { move: '.topo-descent_map-wrapper', reveal: '.topo-descent_text-wrapper', start: 0.45, end: 0.7 }
     tiltStart:       0.35,      // progress over which the tilt comes on …
     tiltEnd:         0.72,      // … and is done
     lensStart:       0,         // progress over which the lens narrows from approachLens to lens …
@@ -125,6 +127,14 @@ from `approachLens` to `lens`. Over the last stretch the camera's orbital speed 
 curving through `orbitAmount` degrees as it arrives, and the turntable simply continues the turn:
 nothing is reset on landing. Scrolling back up eases the turn away by the short way round, never by
 whole turns. `mount()` resolves to an instance with `set({...})` for changing any of these in place.
+
+`stage` lets the script choreograph the layout around the map, for the case where the map should
+open centred on the screen and slide aside as the copy comes in. `move` is a selector for the map's
+box: on desktop it starts centred in the viewport and slides (translateX) to wherever the layout puts
+it, over `start` → `end` of the progress; on screens up to `breakpoint` (991 px) it instead starts at
+`heightFrom` (100%) and shrinks to `heightTo` (50%). `reveal` is a selector for the copy, which
+fades from 0 to 1 over the same window. Nothing is set once the move is done, so the resting layout
+is exactly what the Designer shows, and `prefers-reduced-motion` skips the move.
 
 Drive it from scroll with a tall track and a sticky stage:
 
