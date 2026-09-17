@@ -14,7 +14,7 @@ to the value shown here.
 
 ```html
 <div id="topo" style="width:100%;height:600px"></div>
-<script src="https://cdn.jsdelivr.net/gh/volentecreative/hwi-topo@b34abd4/topo-turntable.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/volentecreative/hwi-topo@f96b58f/topo-turntable.js"></script>
 <script>
   TopoTurntable.mount('#topo', {
 
@@ -123,7 +123,7 @@ Or the no-JavaScript way — give any element `data-topo` and it mounts itself:
 
 ```html
 <div data-topo data-config='{"tilt":40,"rotateSeconds":60}' style="height:500px"></div>
-<script src="https://cdn.jsdelivr.net/gh/volentecreative/hwi-topo@b34abd4/topo-turntable.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/volentecreative/hwi-topo@f96b58f/topo-turntable.js"></script>
 ```
 
 > The URL above is pinned to commit `065bdc3`, so it is permanent and served instantly. Swap the hash for a newer commit to pick up changes; `@main` also works but jsDelivr caches it for up to 24 h. The script loads its terrain from `data/` beside itself, so the pin covers the data too.
