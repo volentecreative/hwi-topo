@@ -20,14 +20,17 @@ to the value shown here.
 
     // --- terrain ---------------------------------------------------------
     exaggeration:   2,          // vertical exaggeration; 1 = true scale, higher = more dramatic relief
-    localInterval:  12.5,       // finest contour interval, in metres, over the county-scale grid
-    regionInterval: 25,         // finest interval over the 1 km grid (600 x 500 km)
+    contourLevels:  2,          // 2 = the regional grid is the map everywhere (default); 3 = the county grid takes over inside its extent
+    localInterval:  12.5,       // (three levels only) finest contour interval, in metres, over the county-scale grid
+    regionInterval: 20,         // finest interval over the 1 km grid (600 x 500 km)
     contInterval:   100,        // finest interval over the 5 km grid (5,800 x 3,300 km)
     county:         true,       // draw the county line, draped on the relief
 
     // --- how the topo resolves (see "How the world is built") --------------
     intervalRevealMode: 'progressive', // 'progressive' (sets fill in between existing lines as you zoom) | 'existing' (the earlier model)
-    microInterval:    25,       // progressive mode: the finest contour set ever shown, in metres
+    microInterval:    20,       // progressive mode: the finest contour set ever shown, in metres
+    coarseInterval:   100,      // contour sets from this interval up are the "coarse" level, drawn in coarseColor at coarseOpacity
+    coarseOpacity:    0.7,
     revealStart:      550,      // view width, km, where the topo first begins to appear
     revealFull:       120,      // view width, km, where it reaches full opacity
     revealSoftness:   1,        // >1 = slower start to that reveal, <1 = quicker
@@ -55,7 +58,8 @@ to the value shown here.
     // each falls back to the site palette's own variable, so defining --map-bg, --topo, --boundary, --water and
     // --label once on the page is enough
     background:    'var(--topo-bg, var(--map-bg, #222322))',
-    lineColor:     'var(--topo-line, var(--topo, #525352))',        // every contour, at every level
+    lineColor:     'var(--topo-line, var(--topo, #525352))',        // the main contours
+    coarseColor:   'var(--topo-coarse, var(--topo-muted, #3f4040))', // the coarse sets (coarseInterval and up), quieter
     lineOpacity:   1,
     mutedColor:    'var(--topo-muted, #3f4040)',                    // the graticule and the rest of the world's outlines
     boundaryColor: 'var(--topo-boundary, var(--boundary, #626362))', // country outlines
@@ -65,14 +69,14 @@ to the value shown here.
     waterColor:    'var(--topo-water, var(--water, #3f6063))',
 
     // --- labels ----------------------------------------------------------
-    label:       'Gainesboro',  // the anchor town: a dot at the origin from orbit, its name from ~130 km; '' hides it
-    towns: [{name:'Whitleyville',lon:-85.6719,lat:36.4453},{name:'Mayfield',lon:-85.6149,lat:36.2454}],  // reference towns, pinned, in from ~130 km
-    countyLabel: 'Jackson County',   // the regional label, no pin, in the county's southern third; '' hides it
+    label:       'Gainesboro',  // the anchor town: text only, from ~130 km; '' hides it
+    towns: [{name:'Whitleyville',lon:-85.6719,lat:36.4453},{name:'Mayfield',lon:-85.6149,lat:36.2454}],  // reference towns, text only, from ~130 km
+    countyLabel: 'Jackson County',   // the anchored callout: a dot and leader from the county's centre, its name from halfway down; '' hides it
     countyLabelClass: '',       // style it with your own classes (see below)
-    labelSecondaryColor: 'var(--topo-label-secondary, var(--label-secondary, #9a9a96))',  // the towns and their pins
+    labelSecondaryColor: 'var(--topo-label-secondary, var(--label-secondary, #9a9a96))',  // the towns
     labelHeight: 0.45,          // how far the pin stands above the terrain, as a fraction of the county's half-extent
     labelClass:  '',            // style the text with your own classes instead (see below)
-    labelColor:  'var(--topo-label, var(--label, #f2f2f0))',  // the county label; ignored when countyLabelClass is set
+    labelColor:  'var(--topo-label, var(--label, #f2f2f0))',  // the county label and its dot and leader; ignored when countyLabelClass is set
     labelFont:   '500 15px/1 "Helvetica Neue", Helvetica, Arial, sans-serif',  // ignored when labelClass is set
 
     // --- approach: scroll-driven descent from the whole Earth --------------
@@ -119,9 +123,10 @@ Or the no-JavaScript way — give any element `data-topo` and it mounts itself:
 `approach: true` opens on the whole Earth, the county facing you, and descends to the frame the
 turntable would otherwise open on. Progress 0 is the globe, 1 is the landing frame. From orbit the map
 is outlines only: the country outlines and a 15° graticule, the state lines (which stay, muted, all the
-way down), North America in more detail until 100 km. The county is a dot from orbit; its outline and
-the name "Jackson County" come in about halfway down (2,000 → 1,200 km across), the town names —
-Gainesboro's included — from about 130 km, roads and rivers from 90 km. There is no topo at those scales. The contours begin to resolve, quietly and broadly around the
+way down), North America in more detail until 100 km. The county is a dot from orbit, on a leader from
+the county's centre; its outline and the name "Jackson County" come in about halfway down (2,000 →
+1,200 km across); the town names — Gainesboro's included — are text only, from about 130 km; roads and
+rivers from 90 km. There is no topo at those scales. The contours begin to resolve, quietly and broadly around the
 county, from `revealStart` (550 km) and are fully there by `revealFull` (120 km) — see "How the world
 is built".
 
@@ -187,10 +192,12 @@ not squares), so a line can never fall below the surface it sits on and come out
 and the country outlines are draped the same way — on the continental relief where there is land, on
 the sea-level sphere elsewhere — so they ride over the terrain rather than being buried under it.
 
-There are no contour levels of detail to see. Contours are cut from the regional grid (25 m, 1 km
-cells) and the county grid (12.5 m, 200 m cells) only — never from the continental grid, which is
-relief and nothing else — and every contour is drawn by one material: one colour, one width, one
-depth rule. Each level's segments are traced into whole polylines, and a line's opacity is a product
+The map has two visual levels and one contour field. By default (`contourLevels: 2`) every contour
+is cut from the regional grid (20 m, 1 km cells, smoothed at 1.5 km), everywhere — the county included,
+so the county never reads as a higher-resolution insert — and the sets from `coarseInterval` (100 m)
+up are drawn quieter, in `coarseColor`, as the backbone the main sets fill in between. The county grid
+(12.5 m, 200 m cells) is only used when `contourLevels: 3`, the earlier look. The continental grid is
+relief and nothing else. Every contour is drawn by one material: one width, one depth rule. Each level's segments are traced into whole polylines, and a line's opacity is a product
 of things that are either the same along its whole length or vary only very gradually across the map,
 so a line is always either there, complete, or not: it fades in as one piece and never draws itself on.
 
@@ -208,9 +215,9 @@ so a line is always either there, complete, or not: it fades in as one piece and
   shown, so the coarse structure is the backbone and finer sets fill the gaps as you approach; the
   `existing` mode keeps the earlier linear ramp.
 - **Length.** A polyline shorter than `minSegment` px on screen stays out, so no small loops or nibs.
-- **Grids.** The regional grid's lines wait until its smoothing scale (2.5 km) spans a few pixels; inside
-  the county grid's extent they give way, over `handoffSoftness`, to the county grid's lines (same
-  levels, from nearly the same heights) as *its* scale (250 m) does. Each grid's outer margin is
+- **Grids.** The regional grid's lines wait until its smoothing scale (1.5 km) spans a few pixels. With
+  three levels, inside the county grid's extent they give way, over `handoffSoftness`, to the county
+  grid's lines (same levels, from nearly the same heights) as *its* scale (250 m) does. Each grid's outer margin is
   blended toward the next coarser field and its lines fade across it, so no level ends where its data does.
 
 All of this is by pixels per metre, not by scroll progress, so it stays right if the track or the lens
