@@ -101,6 +101,7 @@ to the value shown here.
     orbitRamp:       'smooth',  // 'smooth' | 'linear' speed ramp
     orbitAmount:     0,         // optional extra: degrees of heading turned with the scroll itself over the same window
     headingShortest: true,      // scrolling back up after a long spin unwinds by the short way round, never by whole turns
+    headingReturnSeconds: 1.8,  // how long that return takes: a critically damped ease, no snap at either end
 
     // --- data ------------------------------------------------------------
     data: {},                   // { base, local, region, lines } — defaults to ./data/ next to the script

@@ -89,6 +89,7 @@
     "orbitAmount": 0,
     "orbitRamp": "smooth",
     "headingShortest": true,
+    "headingReturnSeconds": 1.8,
     "data": {}
   };
 
@@ -397,7 +398,7 @@
     // ---- camera + fit: frame the county's box, over a full turn, so nothing clips as it rotates
     const polFinal=()=>(90-CONFIG.tilt)*D2R, azHome=()=>-(CONFIG.startHeading||0)*D2R;
     const pivotHome=new THREE.Vector3(...toWorld(CX,CY,(zlo+zhi)/2)), pivot=pivotHome.clone();
-    let pol=polFinal(), az=azHome(), spin=0, wasAtEnd=false, dragging=null, lastPointer=0, dist=R*3, fitDist=R*3, alive=true;
+    let pol=polFinal(), az=azHome(), spin=0, spinVel=0, wasAtEnd=false, dragging=null, lastPointer=0, dist=R*3, fitDist=R*3, alive=true;
     function placeCam(a){ camera.position.set(pivot.x+dist*Math.sin(pol)*Math.sin(a), pivot.y+dist*Math.cos(pol), pivot.z+dist*Math.sin(pol)*Math.cos(a)); camera.lookAt(pivot); camera.updateMatrixWorld(); }
     const fitPts=[]; for(const x of [cx0,cx1]) for(const y of [cy0,cy1]){ fitPts.push(new THREE.Vector3(...toWorld(x,y,zlo)), new THREE.Vector3(...toWorld(x,y,zhi))); } if(pinWorld) fitPts.push(pinWorld);
     // ---- focus: where on the canvas the anchor sits, as fractions of its width and height (0.5, 0.5 = centre). The
@@ -535,7 +536,10 @@
         // turntable simply keeps that speed. Back up the track past orbitStart it eases away — by the short way round
         const inOrbit=AP.t>(+CONFIG.orbitStart||0.9);
         if(inOrbit && CONFIG.rotateSeconds>0 && !reduced && !dragging && now-lastPointer>1500) spin+=dt*Math.PI*2/CONFIG.rotateSeconds*orbitSpeed(AP.t);
-        else if(!inOrbit && !dragging){ if(wasAtEnd && CONFIG.headingShortest!==false) spin=Math.atan2(Math.sin(spin),Math.cos(spin)); spin*=Math.exp(-dt*1.5); }
+        else if(!inOrbit && !dragging){   // back up the track: the turn eases away on a critically damped spring — no snap at either end
+          if(wasAtEnd){ if(CONFIG.headingShortest!==false) spin=Math.atan2(Math.sin(spin),Math.cos(spin)); spinVel=0; }
+          const w=2*Math.PI/Math.max(0.3,+CONFIG.headingReturnSeconds||1.8), n=Math.min(12,Math.ceil(Math.min(0.25,dt)/0.02)), h=Math.min(0.25,dt)/n; for(let k=0;k<n;k++){ spinVel+=(-w*w*spin-2*w*spinVel)*h; spin+=spinVel*h; } if(Math.abs(spin)<1e-4&&Math.abs(spinVel)<1e-4){ spin=0; spinVel=0; } }
+        else if(inOrbit) spinVel=0;
         wasAtEnd=inOrbit;
         applyApproach(); applyStage(AP.t); applyFocus(AP.t);
       } else {
