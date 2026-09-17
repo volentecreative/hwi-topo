@@ -19,22 +19,22 @@ to the value shown here.
   TopoTurntable.mount('#topo', {
 
     // --- terrain ---------------------------------------------------------
-    exaggeration:   2,          // vertical exaggeration; 1 = true scale, higher = more dramatic relief
+    exaggeration:   2.5,        // vertical exaggeration; 1 = true scale, higher = more dramatic relief
     contourLevels:  2,          // 2 = the regional grid is the map everywhere (default); 3 = the county grid takes over inside its extent
     localInterval:  12.5,       // (three levels only) finest contour interval, in metres, over the county-scale grid
-    regionInterval: 20,         // finest interval over the 1 km grid (600 x 500 km)
+    regionInterval: 10,         // finest interval over the 1 km grid (600 x 500 km)
     contInterval:   100,        // finest interval over the 5 km grid (5,800 x 3,300 km)
     county:         true,       // draw the county line, draped on the relief
 
     // --- how the topo resolves (see "How the world is built") --------------
     intervalRevealMode: 'progressive', // 'progressive' (sets fill in between existing lines as you zoom) | 'existing' (the earlier model)
-    microInterval:    20,       // progressive mode: the finest contour set ever shown, in metres
+    microInterval:    10,       // progressive mode: the finest contour set ever shown, in metres
     coarseInterval:   100,      // contour sets from this interval up are the "coarse" level, drawn in coarseColor at coarseOpacity
     coarseOpacity:    0.7,
     revealStart:      550,      // view width, km, where the topo first begins to appear
     revealFull:       120,      // view width, km, where it reaches full opacity
     revealSoftness:   1,        // >1 = slower start to that reveal, <1 = quicker
-    contourSpacing:   16,       // a contour set resolves in once its lines would fall this many CSS px apart
+    contourSpacing:   10,       // a contour set resolves in once its lines would fall this many CSS px apart
     spacingTolerance: 0.2,      // 0 = every line of a set fades together; 1 = each line by its own slope
     intervalBlend:    0.5,      // how soft each set's fade is (progressive: in log-zoom; existing: fraction of the spacing)
     minSegment:       24,       // contour lines shorter than this on screen, in px, stay out (small loops, nibs)
@@ -193,7 +193,7 @@ and the country outlines are draped the same way — on the continental relief w
 the sea-level sphere elsewhere — so they ride over the terrain rather than being buried under it.
 
 The map has two visual levels and one contour field. By default (`contourLevels: 2`) every contour
-is cut from the regional grid (20 m, 1 km cells, smoothed at 1.5 km), everywhere — the county included,
+is cut from the regional grid (10 m, 1 km cells, smoothed at 1.5 km), everywhere — the county included,
 so the county never reads as a higher-resolution insert — and the sets from `coarseInterval` (100 m)
 up are drawn quieter, in `coarseColor`, as the backbone the main sets fill in between. The county grid
 (12.5 m, 200 m cells) is only used when `contourLevels: 3`, the earlier look. The continental grid is

@@ -21,7 +21,7 @@
  */
 (function(global){
   const DEFAULTS = {
-    "exaggeration": 2,
+    "exaggeration": 2.5,
     "rotateSeconds": 120,
     "startHeading": 0,
     "tilt": 31,
@@ -30,9 +30,9 @@
     "background": "var(--topo-bg, var(--map-bg, #222322))",
     "lineColor": "var(--topo-line, var(--topo, #525352))",
     "lineOpacity": 1,
-    "contourSpacing": 16,
+    "contourSpacing": 10,
     "intervalRevealMode": "progressive",
-    "microInterval": 20,
+    "microInterval": 10,
     "contourLevels": 2,
     "coarseInterval": 100,
     "coarseColor": "var(--topo-coarse, var(--topo-muted, #3f4040))",
@@ -53,7 +53,7 @@
     "countyColor": "var(--topo-county, var(--boundary, #626362))",
     "county": true,
     "localInterval": 12.5,
-    "regionInterval": 20,
+    "regionInterval": 10,
     "contInterval": 100,
     "roads": false,
     "roadColor": "var(--topo-road, var(--boundary, #626362))",
