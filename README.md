@@ -82,6 +82,11 @@ to the value shown here.
     approachDamping: 0.12,      // how quickly the view follows the scroll (1 = instantly)
     stage: null,                // let the script move the map's own box with the descent — see below; e.g.
                                 // { move: '.topo-descent_map-wrapper', reveal: '.topo-descent_text-wrapper', start: 0.45, end: 0.7 }
+    focus: null,                // where the county sits on the canvas at rest, as fractions of its width and height, e.g.
+                                // { x: 0.75, y: 0.5 } = the centre of the right half; null = the centre (see below)
+    focusFrom: null,            // where it starts (the centre by default); it moves to focus over stage.start → stage.end
+    focusNarrow: null,          // the same two, for screens up to stage.breakpoint (991 px), e.g. { x: 0.5, y: 0.32 }
+    focusNarrowFrom: null,
     tiltStart:       0.35,      // progress over which the tilt comes on …
     tiltEnd:         0.72,      // … and is done
     lensStart:       0,         // progress over which the lens narrows from approachLens to lens …
@@ -135,6 +140,15 @@ it, over `start` → `end` of the progress; on screens up to `breakpoint` (991 p
 `heightFrom` (100%) and shrinks to `heightTo` (50%). `reveal` is a selector for the copy, which
 fades from 0 to 1 over the same window. Nothing is set once the move is done, so the resting layout
 is exactly what the Designer shows, and `prefers-reduced-motion` skips the move.
+
+`focus` is the other way to share the screen with copy, for a map that fills the section as a
+background: instead of moving the map's box, the camera's projection is offset so the county lands
+at a chosen point of the canvas — `{ x: 0.75, y: 0.5 }` puts it in the centre of the right half. It is
+an off-axis view, not a shifted canvas, so nothing is cropped and the fit still frames the whole county
+in the room the tighter side leaves. It travels from `focusFrom` (the centre unless set) to `focus`
+over the stage window, and `focusNarrow` / `focusNarrowFrom` take over on narrow screens, where the
+county usually wants the upper part of the screen with the copy below. Fractions, so it is responsive
+by construction; the labels follow.
 
 Drive it from scroll with a tall track and a sticky stage:
 

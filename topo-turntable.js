@@ -71,6 +71,10 @@
     "approachLens": 38,
     "approachDamping": 0.12,
     "stage": null,
+    "focus": null,
+    "focusFrom": null,
+    "focusNarrow": null,
+    "focusNarrowFrom": null,
     "tiltStart": 0.35,
     "tiltEnd": 0.72,
     "lensStart": 0,
@@ -386,7 +390,19 @@
     let pol=polFinal(), az=azHome(), spin=0, wasAtEnd=false, dragging=null, lastPointer=0, dist=R*3, fitDist=R*3, alive=true;
     function placeCam(a){ camera.position.set(pivot.x+dist*Math.sin(pol)*Math.sin(a), pivot.y+dist*Math.cos(pol), pivot.z+dist*Math.sin(pol)*Math.cos(a)); camera.lookAt(pivot); camera.updateMatrixWorld(); }
     const fitPts=[]; for(const x of [cx0,cx1]) for(const y of [cy0,cy1]){ fitPts.push(new THREE.Vector3(...toWorld(x,y,zlo)), new THREE.Vector3(...toWorld(x,y,zhi))); } if(pinWorld) fitPts.push(pinWorld);
+    // ---- focus: where on the canvas the anchor sits, as fractions of its width and height (0.5, 0.5 = centre). The
+    // camera's projection is offset to put it there — an off-axis view, not a shifted canvas — so a full-bleed map
+    // can hold the county in, say, the centre of its right half while the copy has the left. It moves from
+    // focusFrom (centre by default) to focus over the stage window; focusNarrow / focusNarrowFrom take over below
+    // the stage breakpoint. Fractions, so it is responsive by construction.
+    const isNarrow=()=>!!(global.matchMedia && global.matchMedia('(max-width: '+(+(CONFIG.stage&&CONFIG.stage.breakpoint)||991)+'px)').matches);
+    const focusAt=(t)=>{ const C=CONFIG, S=C.stage||{}, n=isNarrow(); const to=(n?(C.focusNarrow||C.focus):C.focus)||{x:0.5,y:0.5}, from=(n?(C.focusNarrowFrom||C.focusFrom):C.focusFrom)||{x:0.5,y:0.5};
+      const s0=+S.start||0.45, s1=Math.max(s0+0.01,+S.end||0.7), e=(AP&&!reduced)?smooth(s0,s1,t):1; return { x:(+from.x)+((+to.x)-(+from.x))*e, y:(+from.y)+((+to.y)-(+from.y))*e }; };
+    let focusKey='';
+    function applyFocus(t){ const f=focusAt(t), w=host.clientWidth||1, h=host.clientHeight||1; const key=[f.x.toFixed(4),f.y.toFixed(4),w,h].join('|'); if(key===focusKey) return; focusKey=key;
+      if(Math.abs(f.x-0.5)<1e-4 && Math.abs(f.y-0.5)<1e-4){ if(camera.view) camera.clearViewOffset(); } else camera.setViewOffset(w,h,(0.5-f.x)*w,(0.5-f.y)*h,w,h); }
     function fit(){
+      if(camera.view) camera.clearViewOffset(); focusKey='';   // measure on the plain, centred projection
       ensureBox();
       const w=host.clientWidth,h=host.clientHeight;
       if(!w||!h){ pendingFit=true; return; }
@@ -396,7 +412,9 @@
       dist=R*3; pol=polFinal(); pivot.copy(pivotHome); camera.fov=CONFIG.lens; camera.updateProjectionMatrix();
       const margin=1/(CONFIG.fitMargin||1.1);
       const measure=()=>{ let minX=1e9,maxX=-1e9,minY=1e9,maxY=-1e9; for(let k=0;k<24;k++){ placeCam(k/24*Math.PI*2); for(const p of fitPts){ const q=p.clone().project(camera); if(q.x<minX)minX=q.x; if(q.x>maxX)maxX=q.x; if(q.y<minY)minY=q.y; if(q.y>maxY)maxY=q.y; } } return {minX,maxX,minY,maxY}; };
-      for(let i=0;i<4;i++){ const b=measure(); const ext=Math.max((b.maxX-b.minX)/2,(b.maxY-b.minY)/2)/margin; if(ext>0) dist*=ext; }
+      // the county must fit the room the resting focal point leaves on its tighter side
+      const fr=focusAt(1), roomX=2*Math.min(fr.x,1-fr.x), roomY=2*Math.min(fr.y,1-fr.y);
+      for(let i=0;i<4;i++){ const b=measure(); const ext=Math.max((b.maxX-b.minX)/2/Math.max(0.1,roomX),(b.maxY-b.minY)/2/Math.max(0.1,roomY))/margin; if(ext>0) dist*=ext; }
       const b=measure(); const cy=(b.minY+b.maxY)/2; pivot.y += cy*dist*Math.tan(camera.fov*Math.PI/360)*0.9; pivotHome.copy(pivot);
       fitDist=dist; setFrustum(); renderBump++;
       if(AP) applyApproach(); else placeCam(az);
@@ -506,12 +524,12 @@
         if(atEnd && CONFIG.rotateSeconds>0 && !reduced && !dragging && now-lastPointer>1500) spin+=dt*Math.PI*2/CONFIG.rotateSeconds;
         else if(!atEnd && !dragging){ if(wasAtEnd && CONFIG.headingShortest!==false) spin=Math.atan2(Math.sin(spin),Math.cos(spin)); spin*=Math.exp(-dt*1.5); }   // back up the track: unwind by the short way round, never by whole turns
         wasAtEnd=atEnd;
-        applyApproach(); applyStage(AP.t);
+        applyApproach(); applyStage(AP.t); applyFocus(AP.t);
       } else {
         if(CONFIG.rotateSeconds>0 && !reduced && !dragging && now-lastPointer>1500) spin+=dt*Math.PI*2/CONFIG.rotateSeconds;
-        az=azHome()+spin; placeCam(az);
+        az=azHome()+spin; placeCam(az); applyFocus(1);
       }
-      const key=[AP?AP.t:1, az, pol, dist, camera.fov, host.clientWidth, host.clientHeight, renderBump, lastColors].join('|');
+      const key=[AP?AP.t:1, az, pol, dist, camera.fov, host.clientWidth, host.clientHeight, renderBump, lastColors, focusKey].join('|');
       if(key===renderKey) return; renderKey=key;
       lastVw=layerFade();
       renderer.render(scene,camera);
