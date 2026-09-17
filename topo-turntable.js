@@ -457,7 +457,7 @@
     // layer visibility by how much ground the frame spans: the country from orbit, relief on the way in, the county last
     const smooth=(a,b,t)=>{ const x=Math.min(1,Math.max(0,(t-a)/(b-a))); return x*x*(3-2*x); };
     function layerFade(){
-      const vw=2*dist*Math.tan(camera.fov*D2R/2)*Math.max(camera.aspect,1/camera.aspect);
+      const vw=2*dist*Math.tan(camera.fov*D2R/2)*camera.aspect;   // the ground across the frame's width: on a phone in portrait that is what the county fills, so the landing reads the same as on desktop
       const set=(o,base,a)=>{ if(!o) return; o.material.opacity=base*a; o.visible=a>0.01; };
       const kmOut=(hi,lo)=>smooth(lo,hi,vw), kmIn=(hi,lo)=>1-smooth(lo,hi,vw);   // fade as the view narrows (in) or widens (out)
       const globe=kmOut(1.6e6,6e5), grat=kmOut(5e5,2.5e5), naA=kmOut(2.5e5,1.0e5), states=1;   // state lines stay: they are context at every scale
