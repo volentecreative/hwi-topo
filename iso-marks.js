@@ -39,9 +39,10 @@
     const ok = got && !/var\(/.test(got) && (got === 'transparent' || (global.CSS && CSS.supports && CSS.supports('color', got)));
     return ok ? got : (m[2] ? resolveColor(host, m[2]) : 'transparent');
   }
-  function loadThree() {
+  function loadThree() {   // one load shared by every mount on the page, however many copies of this script there are
     if (global.THREE) return Promise.resolve();
-    return new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js'; s.onload = res; s.onerror = () => rej(new Error('three.js failed to load')); document.head.appendChild(s); });
+    if (!global.__threeLoading) global.__threeLoading = new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js'; s.onload = res; s.onerror = () => rej(new Error('three.js failed to load')); document.head.appendChild(s); });
+    return global.__threeLoading;
   }
   // a critically damped spring step: no overshoot, eased at both ends
   function spring(x, v, target, seconds, dt) { const w = 2 * Math.PI / Math.max(0.15, seconds); const n = Math.max(1, Math.ceil(dt / 0.01)), h = dt / n; for (let i = 0; i < n; i++) { v += (-w * w * (x - target) - 2 * w * v) * h; x += v * h; } if (Math.abs(x - target) < 1e-4 && Math.abs(v) < 1e-4) { x = target; v = 0; } return [x, v]; }
