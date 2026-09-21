@@ -351,7 +351,7 @@ The focused propeller turns slowly.
 
 ```html
 <div id="drone" class="hero_drone"></div>
-<script src="https://cdn.jsdelivr.net/gh/volentecreative/hwi-topo@PIN/drone-hero.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/volentecreative/hwi-topo@2feda55/drone-hero.js"></script>
 <script>DroneHero.mount('#drone', { focus: 'FR' });</script>
 ```
 
