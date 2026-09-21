@@ -339,3 +339,28 @@ backwards, and hovers queue, so a second hover mid-cycle runs it a second box al
 a badge and extruded back (`depth`, 0.22 of its width). On hover the bands step forward one after
 another, outer band first (`stagger`, 0.55), the innermost standing `rise` (0.5 of the width) proud,
 and step back flush when the pointer leaves. Pass `mark: { polys, width, height }` for another mark.
+
+## drone-hero.js: the drone, framed on a motor
+
+The heavy-lift drone model (`heavy_lift_drone_model.glb`, in this repo) drawn the house way for the
+hero: faces in the page colour so near parts hide far ones, creases and silhouettes as lines. The
+focused motor — base, coil, cap, shaft, hub and propeller — is drawn in the primary colour, everything
+else in the secondary. An orthographic camera looks at the motor from the side so its arm runs off to
+the right, and puts the motor at a chosen point of the frame, so the composition holds at any size.
+The focused propeller turns slowly.
+
+```html
+<div id="drone" class="hero_drone"></div>
+<script src="https://cdn.jsdelivr.net/gh/volentecreative/hwi-topo@PIN/drone-hero.js"></script>
+<script>DroneHero.mount('#drone', { focus: 'FR' });</script>
+```
+
+Options: `focus` (FR, FL, BR, BL, or `'FR 2'` for the lower ring of the coaxial pairs), `azimuth`
+(`'auto'` = side-on to the focused arm, arm to the right; or degrees), `elevation` (8°), `zoom` (the
+motor's height as a fraction of the frame's, 0.5), `point` and `pointNarrow` (where the motor sits in
+the frame, fractions of width and height; the narrow one up to `breakpoint`, 991px), `propSeconds`
+(8; 0 stills it), `crease` (22°: sharper edges are drawn), `lineWidth` (1.1px silhouettes), and the
+colours `primary`, `secondary`, `face`, `background`, from `--drone-primary`, `--drone-secondary`,
+`--drone-face`, `--drone-bg` with the map's `--topo-label`, `--topo-label-secondary` and
+`--topo-block` as fallbacks. The model loads from beside the script (`model` overrides), and the
+GLTF loader from jsDelivr's copy of three r128 (`loader` overrides).
