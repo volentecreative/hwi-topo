@@ -1,5 +1,5 @@
 /*!
- * iso-marks.js — small isometric line-work objects for the HWI site: the flag mark, and a conveyor.
+ * iso-marks.js — small isometric line-work objects for the HWI site: the flag mark, a conveyor, and the shield.
  *
  *   <div id="flag" style="width:6rem;height:6rem"></div>
  *   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -7,6 +7,7 @@
  *   <script>
  *     IsoMarks.flag('#flag', { hover: '.card' });          // splits into three flags on hover, closes on leave
  *     IsoMarks.conveyor('#belt', { hover: '.card' });      // every hover runs the belt one box along
+ *     IsoMarks.shield('#shield', { hover: '.card' });      // its bands step forward on hover, back flush on leave
  *   </script>
  *
  * Faces are one flat colour, edges are lines, both from CSS variables so the objects follow the site's theme:
@@ -230,6 +231,42 @@
     };
   }
 
+  // ======== the shield: the mark standing upright like a badge, extruded back; on hover its bands step forward,
+  // outer band first, so the layers of it show — and step back flush when the pointer leaves
+  const SHIELD_MARK = {"polys":[[[1,0],[1,0.7288],[0.6157,1.0507],[0.3844,1.0507],[0.0001,0.7288],[0.0001,0.5751],[0.4273,0.9329],[0.5729,0.9329],[0.8822,0.6738],[0.8822,0],[1,0]],[[0.7796,0],[0.7796,0.6257],[0.6142,0.7643],[0.5354,0.8303],[0.4646,0.8303],[0.3473,0.732],[0,0.4411],[0,0.2874],[0.4999,0.7061],[0.6617,0.5706],[0.6617,0],[0.7796,0]],[[0.559,0],[0.559,0.5228],[0.4999,0.5723],[0.4411,0.5231],[0.0001,0.1536],[0,0.0646],[0,0],[0.0647,0.0542],[0.4411,0.3693],[0.4411,0],[0.559,0]],[[0.3386,0],[0.3386,0.1496],[0.16,0],[0.3386,0]]],"width":1,"height":1.0507};   // shield.svg: four nested chevron bands, outermost first, in units of the mark's width
+  const SHIELD = Object.assign({}, SHARED, {
+    mark: null,            // { polys, width, height } — the default is shield.svg
+    depth: 0.22,           // the plate's thickness as a fraction of the mark's width
+    rise: 0.5,             // how far the innermost band stands proud when stepped, as a fraction of the width
+    stagger: 0.55          // each band's share of the animation; the bands' windows overlap, outer first
+  });
+  function shieldScene({ THREE, scene, solid, dispose, CONFIG }) {
+    let W, Hm, D, N; const bands = [];
+    function rebuild() {
+      for (const b of bands) dispose(b.grp); bands.length = 0;
+      const mark = CONFIG.mark || SHIELD_MARK; W = mark.width; Hm = mark.height; D = W * CONFIG.depth; N = mark.polys.length;
+      mark.polys.forEach((poly, k) => { const sh = new THREE.Shape(); poly.forEach(([u, v], i) => { const x = u - W / 2, y = Hm - v; i ? sh.lineTo(x, y) : sh.moveTo(x, y); }); sh.closePath();   // upright: u across, v down from the top, the foot on the ground
+        const g = new THREE.ExtrudeGeometry(sh, { depth: D, bevelEnabled: false }); const grp = solid(g); scene.add(grp); bands.push({ grp, k }); });
+    }
+    rebuild();
+    let target = 0, p = 0, shown = -1;
+    const step = k => N > 1 ? k / (N - 1) * W * CONFIG.rise : 0;
+    return {
+      center() { return new THREE.Vector3(0, Hm / 2, D / 2); },
+      bounds() { const pts = []; for (const x of [-W / 2, W / 2]) for (const y of [0, Hm]) for (const z of [0, D + step(N - 1)]) pts.push(new THREE.Vector3(x, y, z)); return pts; },
+      enter() { target = 1; }, leave() { target = 0; }, tap() { target = target ? 0 : 1; },
+      set(o) { if ('depth' in o || 'mark' in o) rebuild(); shown = -1; },
+      state() { return { stepped: p }; },
+      update(dt, reduced) {
+        if (p === target && shown === p) return false;
+        p = reduced ? target : toward(p, target, CONFIG.seconds, dt);
+        const L = CONFIG.stagger, clamp = v => Math.min(1, Math.max(0, v));
+        for (const b of bands) { const w0 = b.k * (1 - L) / Math.max(1, N - 1), u = ease(clamp((p - w0) / L)); b.grp.position.z = step(b.k) * u; }
+        shown = p; return true;
+      }
+    };
+  }
+
   function mount(target, config, DEF, sceneFn) {
     const host = typeof target === 'string' ? document.querySelector(target) : target;
     if (!host) return Promise.reject(new Error('IsoMarks: target not found'));
@@ -239,6 +276,7 @@
   global.IsoMarks = {
     flag: (t, c) => mount(t, c, FLAG, flagScene),
     conveyor: (t, c) => mount(t, c, CONVEYOR, conveyorScene),
-    defaults: { flag: FLAG, conveyor: CONVEYOR }, defaultMark, version: '1.0.0'
+    shield: (t, c) => mount(t, c, SHIELD, shieldScene),
+    defaults: { flag: FLAG, conveyor: CONVEYOR, shield: SHIELD }, defaultMark, shieldMark: SHIELD_MARK, version: '1.1.0'
   };
 })(typeof window !== 'undefined' ? window : this);
