@@ -289,7 +289,7 @@ metres about 36.35972, −85.65472 and densified to ~80 m. Until then they are o
 - Performance: a standard depth buffer (the logarithmic one writes gl_FragDepth, which disables early-Z and hidden-surface removal on tile-based mobile GPUs), reliefs cut into tiles so the camera frustum culls what is off screen (about 1.3 M triangles a frame from orbit, 0.5 M at the landing frame), the continental relief drawn at 10 km since it carries no contours, a frame rendered only when something changed (a stopped scroll costs nothing), and on touch devices no MSAA and a 1.25 pixel-ratio cap (1.5 elsewhere).
 - Terrain: SRTM 1-arc-second (NASA) and Terrain Tiles (Mapzen / AWS Open Data). County: Census cartographic boundary, 1:500k. Countries: Natural Earth 1:110M world, 1:50M North America. The county outline follows the river; the elevation is the true large-scale shape of the terrain, not survey-grade detail.
 
-## iso-marks.js: the flag and the conveyor
+## iso-marks.js: the flag, the conveyor and the shield
 
 A second, much smaller script for the little line-work objects in the ethos cards. Same stack, same
 look: an orthographic camera at an isometric angle, flat faces in one colour, edges drawn as lines,
@@ -303,6 +303,7 @@ once so that every state of its animation fits its box.
 <script>
   IsoMarks.flag('#flag', { hover: 'closest:.ethos-card' });       // the mark, extruded; on hover it splits into three flags
   IsoMarks.conveyor('#belt', { hover: 'closest:.ethos-card' });   // a belt out of a gate; every hover runs it one box along
+  IsoMarks.shield('#shield', { hover: 'closest:.ethos-card' });   // the shield mark; its bands step forward on hover
 </script>
 ```
 
@@ -329,3 +330,8 @@ across from the hoist, v down from the top) to use the real SVG's shapes.
 (1.45 belt widths). Every hover advances the belt one box: the front box is clipped away at the end of
 the belt, shortening to nothing as it passes, and the next comes through the gate. It never runs
 backwards, and hovers queue, so a second hover mid-cycle runs it a second box along.
+
+**The shield** is `shield.svg` (four nested chevron bands, baked into the script) standing upright like
+a badge and extruded back (`depth`, 0.22 of its width). On hover the bands step forward one after
+another, outer band first (`stagger`, 0.55), the innermost standing `rise` (0.5 of the width) proud,
+and step back flush when the pointer leaves. Pass `mark: { polys, width, height }` for another mark.
