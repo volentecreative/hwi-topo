@@ -17,7 +17,8 @@
  * colour, with vertical ribs; everything else in the secondary. The ribs and the floor grid are drawn as screen-space
  * quads with their own coverage, so they stay antialiased at any width. The model's
  * propellers are replaced with generated blades that turn as the page scrolls, neighbours counter-rotating. A floor
- * grid fades toward the frame's edges. With `track` set, the camera dollies along a path over that section's scroll:
+ * grid fades toward the frame's edges. With `track` set, the camera dollies along a path over that section's scroll
+ * (and writes its progress to a CSS custom property, so the page's copy can move with it):
  * from the whole aircraft, head-on, round and down to beneath the focused motor, looking up at it with the rest of
  * the drone above and behind. Without a track it holds the end of the path. Colours come from CSS variables:
  *   --drone-primary    the motors             (falls back to --topo-label, then #f2f2f0)
@@ -43,9 +44,12 @@
     turn: -28,                 // (only with azimuth 'auto') degrees the side-on heading swings round
     elevation: -14,            // camera height above the horizon at the end, degrees; negative looks up from below
     zoom: 0.36,                // the focused motor's height (base to cap) as a fraction of the frame's height
-    point: { x: 0.5, y: 0.5 },         // where the motor sits in the frame (fractions of width and height)
+    point: { x: 0.5, y: 0.5 },         // where the ribbed casing sits in the frame at the end (fractions of width and height)
     pointNarrow: { x: 0.5, y: 0.45 },  // … on screens up to `breakpoint` wide
+    startPoint: { x: 0.5, y: 0.5 },    // where the whole drone's centre sits at the start; y above 1 puts it below the frame, so only its top peeks in
+    startPointNarrow: null,            // … on narrow screens (null = the same)
     breakpoint: 991,
+    progressVar: '--drone-progress',   // a CSS custom property the eased, damped progress (0-1) is written to on the track and the host, so the page's own layout can follow the move; '' = none
     // the start of the path: the whole aircraft, centred, level, from the front
     startAzimuth: 0,           // camera heading at the start; 0 = the front view
     startElevation: 0,         // degrees above the horizon at the start; 0 = dead level
@@ -303,9 +307,10 @@
       camera.position.copy(camTarget).add(dir.multiplyScalar(dist)); camera.lookAt(camTarget);
       camera.near = Math.max(0.02, dist * 0.05); camera.far = dist + droneR * 4; edgeMat.uniforms.uNear.value = camera.near; edgeMat.uniforms.uFar.value = camera.far; for (const m of lineMats) m.uniforms.uNear.value = camera.near;
       const narrow = global.matchMedia && global.matchMedia('(max-width: ' + (+CONFIG.breakpoint || 991) + 'px)').matches;
-      const pe = (narrow && CONFIG.pointNarrow) || CONFIG.point || { x: 0.5, y: 0.5 }, px = 0.5 + (pe.x - 0.5) * e, py = 0.5 + (pe.y - 0.5) * e;
+      const pe = (narrow && CONFIG.pointNarrow) || CONFIG.point || { x: 0.5, y: 0.5 }, ps = (narrow && CONFIG.startPointNarrow) || CONFIG.startPoint || { x: 0.5, y: 0.5 }, px = ps.x + (pe.x - ps.x) * e, py = ps.y + (pe.y - ps.y) * e;
       camera.setViewOffset(w, h, (0.5 - px) * w, (0.5 - py) * h, w, h); camera.updateProjectionMatrix(); camera.updateMatrixWorld();
       fadeGrid(); dirty = true;
+      if (CONFIG.progressVar) { const v = e.toFixed(4); host.style.setProperty(CONFIG.progressVar, v); if (trackEl) trackEl.style.setProperty(CONFIG.progressVar, v); }
     }
     function frame() {
       w = host.clientWidth || 1; h = host.clientHeight || 1; camera.aspect = w / h; camera.fov = +CONFIG.fov || 30;
@@ -385,5 +390,5 @@
       .then(() => new Promise((res, rej) => new global.THREE.GLTFLoader().load(CONFIG.model || (HERE + 'heavy_lift_drone_model.glb'), res, undefined, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.5.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.6.0' };
 })(typeof window !== 'undefined' ? window : this);
