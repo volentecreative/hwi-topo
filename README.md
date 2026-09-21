@@ -307,19 +307,22 @@ once so that every state of its animation fits its box.
 ```
 
 Both take `hover` (the element whose hover drives them: a selector, `closest:.card` for an ancestor of the
-host, or an element; the host by default; keyboard focus counts,
-and on touch a tap stands in), `azimuth` and `elevation` (45 and 30 by default; 35.264 is true
-isometric), `margin`, `shade` (0 keeps every face the same colour, 0.08 lightens the tops), and the
-colours `faceColor`, `lineColor`, `background`, which default to `--iso-face`, `--iso-line` and
-`--iso-bg` with the topo palette's `--topo-block` and `--topo-label` as fallbacks.
+host, or an element; the host by default; keyboard focus counts, and on touch a tap stands in),
+`seconds` (0.7: every hover animation runs this long, on one cubic ease-in-out curve), `azimuth` and
+`elevation` (45 and 30 by default; 35.264 is true isometric), `margin`, `shade` (0 keeps every face
+the same colour, 0.08 lightens the tops), and the colours `faceColor`, `lineColor`, `background`,
+which default to `--iso-face`, `--iso-line` and `--iso-bg` and fall back to the map's own
+`--topo-block` and `--topo-label`, so an embed that defines the map's variables gets the map's
+colours: faces in the page background (only the edges show, and near faces hide far ones, as the
+relief hides contours), lines in the label colour.
 
-**The flag** lies flat and is extruded up into a block (`depth`, 0.8 of its width). On hover it splits
-into `slices` (3) that lift apart by `gap` (0.6 of a slice) around the middle one (`anchor: 'middle'`,
-or `'bottom'` to grow upward), over `seconds` (0.55), and closes again when the pointer leaves. The
-mark's polygons are traced from the reference render; pass `mark: { polys, width, height }` (polygons
-in flag units, u across from the hoist, v down from the top) to use the real SVG's shapes.
+**The flag** lies flat and is extruded up into a block (`depth`, 0.8 of its width). On hover the block
+turns into `slices` (3) flags, each `plate` (1) pixel thick, at the bottom, the top and evenly between;
+the footprint never changes, and it closes again when the pointer leaves. The mark's polygons are
+traced from the reference render; pass `mark: { polys, width, height }` (polygons in flag units, u
+across from the hoist, v down from the top) to use the real SVG's shapes.
 
 **The conveyor** shows `boxes` (2) on the belt: one nosing out of the gate, then one per `pitch`
-(1.45 belt widths). Every hover advances the belt one box: the front box runs off the end, tips
-(`tilt`, 28°) and drops away (`drop`, 0.9), the next comes through the gate, over `seconds` (1.1).
-It never runs backwards, and hovers queue, so a second hover mid-cycle runs it a second box along.
+(1.45 belt widths). Every hover advances the belt one box: the front box is clipped away at the end of
+the belt, shortening to nothing as it passes, and the next comes through the gate. It never runs
+backwards, and hovers queue, so a second hover mid-cycle runs it a second box along.

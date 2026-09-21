@@ -23,6 +23,7 @@
     elevation: 30,         // camera height, degrees above the ground; 35.264 = true isometric, 30 sits a little lower
     margin: 1.06,          // breathing room around the animation's extremes, which the frame is fitted to
     hover: '',             // the element whose hover drives it: a selector, 'closest:.card' (an ancestor of the host), or an element; '' = the host
+    seconds: 0.7,          // every hover animation runs this long, on the same ease-in-out curve
     shade: 0,              // 0 = every face the same colour; 0.08 lightens the tops a little
     faceColor: 'var(--iso-face, var(--topo-block, #3a3a3a))',
     lineColor: 'var(--iso-line, var(--topo-label, #f2f2f0))',
@@ -44,8 +45,9 @@
     if (!global.__threeLoading) global.__threeLoading = new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js'; s.onload = res; s.onerror = () => rej(new Error('three.js failed to load')); document.head.appendChild(s); });
     return global.__threeLoading;
   }
-  // a critically damped spring step: no overshoot, eased at both ends
-  function spring(x, v, target, seconds, dt) { const w = 2 * Math.PI / Math.max(0.15, seconds); const n = Math.max(1, Math.ceil(dt / 0.01)), h = dt / n; for (let i = 0; i < n; i++) { v += (-w * w * (x - target) - 2 * w * v) * h; x += v * h; } if (Math.abs(x - target) < 1e-4 && Math.abs(v) < 1e-4) { x = target; v = 0; } return [x, v]; }
+  // the one curve every animation runs on: cubic ease-in-out over a linear progress, so a reversal mid-way retraces it
+  const ease = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+  const toward = (p, target, seconds, dt) => p < target ? Math.min(target, p + dt / seconds) : Math.max(target, p - dt / seconds);
 
   // ---- the stage every object shares: renderer, fixed orthographic camera, theme colours, hover, the loop
   function stage(host, CONFIG, makeScene) {
@@ -72,7 +74,7 @@
       g.userData.mats = [fm, cm, lm]; return g; };
     const dispose = g => { scene.remove(g); g.children.forEach(c => c.geometry.dispose()); };
     let dirty = true;
-    const S = makeScene({ THREE, scene, solid, dispose, CONFIG, redraw: () => { dirty = true; } });
+    const S = makeScene({ THREE, scene, solid, dispose, CONFIG, redraw: () => { dirty = true; }, worldPerPx: () => (camera.right - camera.left) / Math.max(1, host.clientWidth) });
 
     function placeCam() {
       const c = S.center(); const el = CONFIG.elevation, az = CONFIG.azimuth;
@@ -136,39 +138,39 @@
   }
   const FLAG = Object.assign({}, SHARED, {
     mark: null,            // { polys:[[[u,v],...],...], width, height } — the default is the traced HWI mark
-    depth: 0.8,            // extrusion height as a fraction of the mark's width
-    slices: 3,             // how many flags it splits into
-    gap: 0.6,              // the lift between flags when split, as a fraction of one slice's height
-    anchor: 'middle',      // 'middle': the middle flag stays put; 'bottom': the stack grows upward
-    seconds: 0.55          // how long the split takes
+    depth: 0.8,            // the block's height as a fraction of the mark's width
+    slices: 3,             // how many flags it turns into
+    plate: 1               // how thick each flag is when split, in screen pixels
   });
-  function flagScene({ THREE, scene, solid, dispose, CONFIG }) {
+  function flagScene({ THREE, scene, solid, dispose, CONFIG, worldPerPx }) {
+    // the block is N stacked slices of the whole mark; on hover each thins to a plate and slides to its level —
+    // the bottom of the block, the top, and evenly between — so the footprint never changes and nothing moves
+    // outside it. The un-split block's edges are a separate set, shown while it is whole, so the cuts never show
     let W, Hm, D, N, sliceH, whole; const slices = [];
     const extrude = (shapes, depth) => { const g = new THREE.ExtrudeGeometry(shapes, { depth, bevelEnabled: false }); g.rotateX(-Math.PI / 2); return g; };   // shape plane → the ground, extrusion → up
     function rebuild() {
       for (const s of slices) dispose(s.grp); slices.length = 0; if (whole) dispose(whole);
-      const mark = CONFIG.mark || defaultMark(); W = mark.width; Hm = mark.height; D = W * CONFIG.depth; N = Math.max(1, CONFIG.slices | 0); sliceH = D / N;
+      const mark = CONFIG.mark || defaultMark(); W = mark.width; Hm = mark.height; D = W * CONFIG.depth; N = Math.max(2, CONFIG.slices | 0); sliceH = D / N;
       const shapes = mark.polys.map(poly => { const s = new THREE.Shape(); poly.forEach(([u, v], i) => { const x = u - W / 2, y = -(v - Hm / 2); i ? s.lineTo(x, y) : s.moveTo(x, y); }); s.closePath(); return s; });
       for (let k = 0; k < N; k++) { const grp = solid(extrude(shapes, sliceH)); grp.position.y = k * sliceH; scene.add(grp); slices.push({ grp, k }); }
-      // the edges of the un-split block, shown while it is whole, so the cuts never show as lines until they open
-      whole = solid(extrude(shapes, D)); whole.children[0].visible = false; whole.userData.mats[2] = whole.children[1].material = slices[0].grp.children[1].material.clone(); scene.add(whole);
+      whole = solid(extrude(shapes, D)); whole.children[0].visible = false; whole.children[1].material = whole.userData.mats[2] = slices[0].grp.children[1].material.clone(); scene.add(whole);
     }
     rebuild();
-    const lift = (k, e) => { const g = CONFIG.gap * sliceH * e; return CONFIG.anchor === 'bottom' ? k * g : (k - (N - 1) / 2) * g; };
-    let target = 0, e = 0, vel = 0, shown = -1;
+    let target = 0, p = 0, shown = -1;
     return {
-      center() { return new THREE.Vector3(0, (D + (CONFIG.anchor === 'bottom' ? lift(N - 1, 1) : 0)) / 2, 0); },
-      bounds() { const pts = []; for (let k = 0; k < N; k++) for (const ee of [0, 1]) { const y0 = k * sliceH + lift(k, ee); for (const x of [-W / 2, W / 2]) for (const z of [-Hm / 2, Hm / 2]) pts.push(new THREE.Vector3(x, y0, z), new THREE.Vector3(x, y0 + sliceH, z)); } return pts; },
+      center() { return new THREE.Vector3(0, D / 2, 0); },
+      bounds() { const pts = []; for (const x of [-W / 2, W / 2]) for (const z of [-Hm / 2, Hm / 2]) pts.push(new THREE.Vector3(x, 0, z), new THREE.Vector3(x, D, z)); return pts; },
       enter() { target = 1; }, leave() { target = 0; }, tap() { target = target ? 0 : 1; },
-      set(p) { if ('depth' in p || 'slices' in p || 'mark' in p) rebuild(); shown = -1; },
-      state() { return { split: e }; },
+      set(o) { if ('depth' in o || 'slices' in o || 'mark' in o) rebuild(); shown = -1; },
+      state() { return { split: ease(p) }; },
       update(dt, reduced) {
-        if (e === target && vel === 0 && shown === e) return false;
-        if (reduced) { e = target; vel = 0; } else [e, vel] = spring(e, vel, target, CONFIG.seconds, dt);
-        for (const s of slices) s.grp.position.y = s.k * sliceH + lift(s.k, e);
-        const open = Math.min(1, e / 0.12); whole.children[1].material.opacity = 1 - open; whole.visible = open < 1;
+        if (p === target && shown === p) return false;
+        p = reduced ? target : toward(p, target, CONFIG.seconds, dt); const e = ease(p);
+        const t1 = Math.max(0.002, (+CONFIG.plate || 1) * worldPerPx() / Math.max(0.2, Math.cos(CONFIG.elevation * Math.PI / 180)));   // a plate: so many pixels tall on screen
+        for (const s of slices) { const th = sliceH + (t1 - sliceH) * e, y0 = s.k * sliceH * (1 - e) + s.k * (D - t1) / (N - 1) * e; s.grp.scale.y = th / sliceH; s.grp.position.y = y0; }
+        const open = Math.min(1, e / 0.08); whole.children[1].material.opacity = 1 - open; whole.visible = open < 1;
         for (const s of slices) { s.grp.children[1].material.opacity = open; s.grp.children[1].visible = open > 0; }
-        shown = e; return true;
+        shown = p; return true;
       }
     };
   }
@@ -178,10 +180,7 @@
   const CONVEYOR = Object.assign({}, SHARED, {
     boxes: 2,              // boxes on the belt at rest (one in the gate, then one per pitch)
     box: 0.72,             // box size, in belt widths
-    pitch: 1.45,           // spacing along the belt, in belt widths
-    seconds: 1.1,          // one cycle
-    drop: 0.9,             // how far the leaving box falls, in belt widths
-    tilt: 28               // and how far it tips, degrees
+    pitch: 1.45            // spacing along the belt, in belt widths
   });
   function conveyorScene({ THREE, scene, solid, dispose, CONFIG }) {
     // belt units: width 1 (x), along the belt is +z (toward the viewer); the gate stands at the back
@@ -193,32 +192,31 @@
       const g = new THREE.ExtrudeGeometry(s, { depth: G.z1 - G.z0, bevelEnabled: false }); g.translate(0, 0, G.z0); const gate = solid(g); scene.add(gate); }
     let boxes = [], B, P, M;
     function rebuild() { for (const b of boxes) dispose(b); boxes = []; B = CONFIG.box; P = CONFIG.pitch; M = Math.max(1, CONFIG.boxes | 0) + 2;   // +1 waiting behind the gate, +1 on its way off
-      for (let j = 0; j < M; j++) { const b = solid(new THREE.BoxGeometry(B, B, B), true); scene.add(b); boxes.push(b); } }
+      for (let j = 0; j < M; j++) { const b = solid(new THREE.BoxGeometry(B, B, B)); scene.add(b); boxes.push(b); } }
     rebuild();
     const ZM = G.z1 + B * 0.5 - 0.36;   // slot 0: the box in the mouth of the gate, nosing out of it
-    let target = 0, phi = 0, vel = 0, shown = -1;
+    let cycles = 0, queued = 0, p = 0, shown = -1;   // cycles done, cycles still to run, progress through the current one
     const slotOf = (j, ph) => ((j + ph) % M + M) % M - 1;   // slot -1 waits behind the gate, 0 is in the gate, then one per pitch; the last slot is off the end
     function place(b, s) {
-      const z = ZM + s * P, over = (z + B / 2) - Z1;   // how far the box's nose is past the end of the belt
-      let y = BT + B / 2, rot = 0, a = 1, vis = s > -0.42;   // hidden until it is fully behind the gate's face
-      if (over > 0) { const f = Math.min(1, over / B); y -= CONFIG.drop * f * f; rot = -CONFIG.tilt * Math.PI / 180 * f; a = 1 - Math.max(0, (f - 0.35) / 0.65); if (f >= 1) vis = false; }
-      b.visible = vis && a > 0.01; b.position.set(BX, y, z); b.rotation.x = rot; for (const m of b.userData.mats) m.opacity = a;
+      const z = ZM + s * P, zb = z - B / 2, zf = Math.min(z + B / 2, Z1), len = zf - zb;   // clipped at the end of the belt: the box keeps its nose on the end and shortens to nothing
+      b.visible = s > -0.42 && len > 0.002; if (!b.visible) return;
+      b.scale.z = len / B; b.position.set(BX, BT + B / 2, (zb + zf) / 2);
     }
     return {
       center() { return new THREE.Vector3(BX - 0.1, 0.55, (G.z0 + Z1) / 2 + 0.1); },
       bounds() { const pts = []; const add = (x, y, z) => pts.push(new THREE.Vector3(x, y, z));
         for (const x of [G.x0, G.x1]) for (const y of [0, G.y1]) for (const z of [G.z0, G.z1]) add(x, y, z);
         for (const x of [BX - BW / 2, BX + BW / 2]) for (const z of [G.z0, Z1]) add(x, 0, z), add(x, BT, z);
-        for (const s of [0, M - 2, M - 2 + 0.5]) { const z = ZM + s * P, over = Math.max(0, (z + B / 2) - Z1), f = Math.min(1, over / B), y = BT + B / 2 - CONFIG.drop * f * f; for (const dx of [-B / 2, B / 2]) for (const dy of [-B / 2, B / 2]) for (const dz of [-B / 2, B / 2]) add(BX + dx, y + dy, z + dz); }
+        for (const s of [0, M - 2]) { const z = ZM + s * P; for (const dx of [-B / 2, B / 2]) for (const dy of [0, B]) for (const dz of [-B / 2, B / 2]) add(BX + dx, BT + dy, Math.min(z + dz, Z1)); }
         return pts; },
-      enter() { target += 1; }, leave() {}, tap() { target += 1; },
-      set(p) { if ('boxes' in p || 'box' in p || 'pitch' in p) { rebuild(); } shown = -1; },
-      state() { return { phase: phi, target }; },
+      enter() { queued += 1; }, leave() {}, tap() { queued += 1; },
+      set(o) { if ('boxes' in o || 'box' in o || 'pitch' in o) rebuild(); shown = -1; },
+      state() { return { phase: cycles + ease(p), queued }; },
       update(dt, reduced) {
-        if (phi === target && vel === 0 && shown === phi) return false;
-        if (reduced) { phi = target; vel = 0; } else [phi, vel] = spring(phi, vel, target, CONFIG.seconds, dt);
-        for (let j = 0; j < M; j++) place(boxes[j], slotOf(j, phi));
-        shown = phi; return true;
+        if (p === 0 && queued === 0 && shown === cycles) return false;
+        if (queued > 0 || p > 0) { p = reduced ? 1 : Math.min(1, p + dt / CONFIG.seconds); if (p >= 1) { p = 0; cycles += 1; queued = Math.max(0, queued - 1); } }
+        const ph = cycles + ease(p); for (let j = 0; j < M; j++) place(boxes[j], slotOf(j, ph));
+        shown = p === 0 ? cycles : -1; return true;
       }
     };
   }
