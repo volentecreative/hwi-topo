@@ -317,13 +317,14 @@ which default to `--iso-face`, `--iso-line` and `--iso-bg` and fall back to the 
 colours: faces in the page background (only the edges show, and near faces hide far ones, as the
 relief hides contours), lines in the label colour.
 
-**The flag** lies flat and is extruded up into a block (`depth`, 0.8 of its width). On hover the block
-becomes `slices` (3) flags, each `plate` (1) pixel thick, at the bottom, the top and evenly between;
-the footprint never changes. Each slice travels straight between its two transforms, thinning as it
-goes, so the block's silhouette is there throughout the return and the last stretch is gap-closing;
-the lines along the cuts fade with the gaps they border, so the slices fuse rather than stack.
-`stagger` (0.85) is each layer's share of the run: 1 moves every layer together, less lets the top
-lead on the way apart. The mark's polygons are
+**The flag** lies flat and is extruded up into a block (`depth`, 0.7 of its width). On hover the block
+becomes `slices` (3) flags, each `plate` (0.045 of the width, about the conveyor belt's thickness), at
+the bottom, the top and evenly between; the lower ones slide out along the stripes (`slide`, 0.35 of the
+width for the bottom one, proportionally less above, the top stays put). Each slice travels straight
+between its two transforms, thinning as it goes, so the block's silhouette is there throughout the
+return and the last stretch is gap-closing; the lines along the cuts fade with the gaps they border,
+so the slices fuse rather than stack. `stagger` (0.85) is each layer's share of the run: 1 moves every
+layer together, less lets the top lead on the way apart. The mark's polygons are
 traced from the reference render; pass `mark: { polys, width, height }` (polygons in flag units, u
 across from the hoist, v down from the top) to use the real SVG's shapes.
 

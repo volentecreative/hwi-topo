@@ -140,9 +140,10 @@
   }
   const FLAG = Object.assign({}, SHARED, {
     mark: null,            // { polys:[[[u,v],...],...], width, height } — the default is the traced HWI mark
-    depth: 0.8,            // the block's height as a fraction of the mark's width
+    depth: 0.7,            // the block's height as a fraction of the mark's width
     slices: 3,             // how many flags it turns into
-    plate: 1,              // how thick each flag is when split, in screen pixels
+    plate: 0.045,          // how thick each flag is when split, as a fraction of the mark's width (about the conveyor belt's)
+    slide: 0.35,           // how far the bottom flag slides out along the stripes when split, as a fraction of the width; the ones above slide proportionally less, the top stays
     stagger: 0.85          // each layer's share of the animation: 1 moves every layer together, less lets the top lead on the way apart
   });
   function flagScene({ THREE, scene, solid, dispose, lineMaterial, CONFIG, worldPerPx }) {
@@ -170,19 +171,19 @@
     let target = 0, p = 0, shown = -1;
     return {
       center() { return new THREE.Vector3(0, D / 2, 0); },
-      bounds() { const pts = []; for (const x of [-W / 2, W / 2]) for (const z of [-Hm / 2, Hm / 2]) pts.push(new THREE.Vector3(x, 0, z), new THREE.Vector3(x, D, z)); return pts; },
+      bounds() { const pts = []; for (const x of [-W / 2, W / 2 + W * (+CONFIG.slide || 0)]) for (const z of [-Hm / 2, Hm / 2]) pts.push(new THREE.Vector3(x, 0, z), new THREE.Vector3(x, D, z)); return pts; },
       enter() { target = 1; }, leave() { target = 0; }, tap() { target = target ? 0 : 1; },
       set(o) { if ('depth' in o || 'slices' in o || 'mark' in o) rebuild(); shown = -1; },
       state() { return { split: p }; },
       update(dt, reduced) {
         if (p === target && shown === p) return false;
         p = reduced ? target : toward(p, target, CONFIG.seconds, dt);
-        const t1 = Math.max(0.002, (+CONFIG.plate || 1) * worldPerPx() / Math.max(0.2, Math.cos(CONFIG.elevation * Math.PI / 180)));   // a plate: so many pixels tall on screen
+        const t1 = Math.min(sliceH, Math.max(0.002, W * (+CONFIG.plate || 0.045)));   // a plate's thickness
         const L = Math.min(1, Math.max(0.2, +CONFIG.stagger || 1)), clamp = v => Math.min(1, Math.max(0, v));
         for (const s of slices) {
           const w0 = (N - 1 - s.k) * (1 - L) / Math.max(1, N - 1), e = ease(clamp((p - w0) / L));   // one direct path per slice: plate ↔ slice of the block
           s.th = sliceH + (t1 - sliceH) * e; s.y0 = s.k * sliceH + (s.k * (D - t1) / (N - 1) - s.k * sliceH) * e;
-          s.grp.scale.y = s.th / sliceH; s.grp.position.y = s.y0;
+          s.grp.scale.y = s.th / sliceH; s.grp.position.y = s.y0; s.grp.position.x = W * (+CONFIG.slide || 0) * (N - 1 - s.k) / Math.max(1, N - 1) * e;   // the lower flags slide out along the stripes
         }
         for (const s of slices) {   // the cut lines fade with the gap they border, over the last quarter of a slice
           const below = s.k > 0 ? s.y0 - (slices[s.k - 1].y0 + slices[s.k - 1].th) : 1, above = s.k < N - 1 ? slices[s.k + 1].y0 - (s.y0 + s.th) : 1;
