@@ -384,15 +384,17 @@ motor sits in the frame; the narrow one up to `breakpoint`, 991px). The start: `
 the front), `startElevation` (0°, level), `margin` (1.25 round the whole drone, which
 is fitted to the frame from that heading). Also
 `propScroll` (turns per 1000px scrolled, 0.35) and `propSeconds` (idle turn, 0 = still); `props`
-(`'blades'` or `'model'`), `blades`, `bladeChord`, `bladeTwist`; `grid` (cell in motor heights, 0.5)
-and `gridFade` (0.3), `gridExtent` (24 motor heights from the drone's centre) and `gridWidth` (1px); `ribs`
+(`'blades'` or `'model'`), `blades`, `bladeChord`, `bladeTwist`; `grid` (cell in motor heights, 1)
+and `gridFade` (0.3; the grid also fades out toward its own edge, all round), `gridExtent` (24 motor
+heights from the drone's centre) and `gridWidth` (1px); `ribs`
 (24 per motor), `ribWidth` (1px) and `ribOpacity` (0.8); `lineWidth` (1px), `depthEdge` (0.012) and
 `normalEdge` (0.25);
 `supersample` (2: the edge pass runs at twice the canvas resolution and averages, so the lines are
 antialiased; the faces, ribs and grid are multisampled), `pixelBudget` (8 million pixels: the most the
 edge pass holds at once; a bigger frame is rendered in tiles, so the quality never drops) and
 `pixelRatioCap` (2); and
-the colours `primary`, `secondary`, `face`, `background`, from `--drone-primary`, `--drone-secondary`,
+the colours `primary`, `secondary`, `gridColor` (the floor grid, falling back to the secondary), `face`,
+`background`, from `--drone-primary`, `--drone-secondary`, `--drone-grid`,
 `--drone-face`, `--drone-bg` with the map's `--topo-label`, `--topo-label-secondary` and
 `--topo-block` as fallbacks. The model loads from beside the script (`model` overrides), and the
 GLTF loader from jsDelivr's copy of three r128 (`loader` overrides).
