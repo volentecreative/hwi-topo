@@ -299,7 +299,7 @@ once so that every state of its animation fits its box.
 ```html
 <div id="flag" class="ethos-card_mark"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/gh/volentecreative/hwi-topo@e254573/iso-marks.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/volentecreative/hwi-topo@4c14502/iso-marks.js"></script>
 <script>
   IsoMarks.flag('#flag', { hover: 'closest:.ethos-card' });       // the mark, extruded; on hover it splits into three flags
   IsoMarks.conveyor('#belt', { hover: 'closest:.ethos-card' });   // a belt out of a gate; every hover runs it one box along
