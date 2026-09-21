@@ -57,7 +57,7 @@
     lineWidth: 1,              // line thickness, in screen pixels
     depthEdge: 0.012, normalEdge: 0.25,   // how big a jump in depth (relative) or in normal (1 - cos) draws a line
     supersample: 2,            // the edge pass runs at this many times the canvas resolution and averages, so the lines are antialiased
-    pixelBudget: 10e6,         // the most pixels the edge pass renders per frame; past it the supersampling, then the pixel ratio, come down
+    pixelBudget: 8e6,          // the most pixels the edge pass holds at once; a frame that needs more is rendered in tiles, so the quality never drops
     primary: 'var(--drone-primary, var(--topo-label, #f2f2f0))',
     secondary: 'var(--drone-secondary, var(--topo-label-secondary, #9a9a96))',
     face: 'var(--drone-face, var(--topo-block, #222322))',
@@ -108,7 +108,7 @@
   const ID_VERT = 'varying vec3 vN; void main(){ vN = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }';
   const ID_FRAG = 'uniform float uId; varying vec3 vN; void main(){ gl_FragColor = vec4(normalize(vN) * 0.5 + 0.5, uId); }';
   const EDGE_FRAG = `
-    uniform sampler2D tN, tD; uniform vec2 uRes, uOut; uniform float uNear, uFar, uWidth, uDepthT, uNormT; uniform vec3 uC1, uC2; varying vec2 vUv;
+    uniform sampler2D tN, tD; uniform vec2 uRes; uniform vec4 uTile; uniform float uNear, uFar, uWidth, uDepthT, uNormT; uniform vec3 uC1, uC2;
     float lin(float z){ float zn = 2.0 * z - 1.0; return 2.0 * uNear * uFar / (uFar + uNear - zn * (uFar - uNear)); }
     // the line at one point of the (supersampled) pass: 0 = none, 1 = a line, and which colour it takes
     float edgeAt(vec2 uv, out vec3 col){
@@ -136,12 +136,13 @@
       return e;
     }
     void main(){
-      // four points inside this canvas pixel, averaged: coverage, so the line is antialiased (premultiplied out)
-      vec2 q = 0.25 / uOut; vec3 rgb = vec3(0.0), col; float a = 0.0, e;
-      e = edgeAt(vUv + vec2(-q.x, -q.y), col); rgb += col * e; a += e;
-      e = edgeAt(vUv + vec2( q.x, -q.y), col); rgb += col * e; a += e;
-      e = edgeAt(vUv + vec2(-q.x,  q.y), col); rgb += col * e; a += e;
-      e = edgeAt(vUv + vec2( q.x,  q.y), col); rgb += col * e; a += e;
+      // this canvas pixel's place in the tile's pass (uTile: the tile's origin and size in canvas pixels), then four
+      // points inside the pixel, averaged: coverage, so the line is antialiased (premultiplied out)
+      vec2 uv = (gl_FragCoord.xy - uTile.xy) / uTile.zw, q = 0.25 / uTile.zw; vec3 rgb = vec3(0.0), col; float a = 0.0, e;
+      e = edgeAt(uv + vec2(-q.x, -q.y), col); rgb += col * e; a += e;
+      e = edgeAt(uv + vec2( q.x, -q.y), col); rgb += col * e; a += e;
+      e = edgeAt(uv + vec2(-q.x,  q.y), col); rgb += col * e; a += e;
+      e = edgeAt(uv + vec2( q.x,  q.y), col); rgb += col * e; a += e;
       if (a < 0.02) discard;
       gl_FragColor = vec4(rgb, a) * 0.25;
     }`;
@@ -165,9 +166,12 @@
     const isGL2 = renderer.capabilities.isWebGL2;
     const depthTex = new THREE.DepthTexture(1, 1); depthTex.type = isGL2 ? THREE.UnsignedIntType : THREE.UnsignedShortType;
     const rt = new THREE.WebGLRenderTarget(1, 1, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthTexture: depthTex, depthBuffer: true, stencilBuffer: false });
-    const edgeMat = new THREE.ShaderMaterial({ transparent: true, depthTest: false, depthWrite: false, blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendEquation: THREE.AddEquation, vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }', fragmentShader: EDGE_FRAG,
-      uniforms: { tN: { value: rt.texture }, tD: { value: depthTex }, uRes: { value: new THREE.Vector2(1, 1) }, uOut: { value: new THREE.Vector2(1, 1) }, uNear: { value: camera.near }, uFar: { value: camera.far }, uWidth: { value: 1 }, uDepthT: { value: +CONFIG.depthEdge || 0.012 }, uNormT: { value: +CONFIG.normalEdge || 0.25 }, uC1: { value: new THREE.Color(CONFIG.primary) }, uC2: { value: new THREE.Color(CONFIG.secondary) } } });
-    const quadScene = new THREE.Scene(), quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1); quadScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), edgeMat));
+    const edgeMat = new THREE.ShaderMaterial({ transparent: true, depthTest: false, depthWrite: false, blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendEquation: THREE.AddEquation, vertexShader: 'void main(){ gl_Position = vec4(position.xy, 0.0, 1.0); }', fragmentShader: EDGE_FRAG,
+      uniforms: { tN: { value: rt.texture }, tD: { value: depthTex }, uRes: { value: new THREE.Vector2(1, 1) }, uTile: { value: new THREE.Vector4(0, 0, 1, 1) }, uNear: { value: camera.near }, uFar: { value: camera.far }, uWidth: { value: 1 }, uDepthT: { value: +CONFIG.depthEdge || 0.012 }, uNormT: { value: +CONFIG.normalEdge || 0.25 }, uC1: { value: new THREE.Color(CONFIG.primary) }, uC2: { value: new THREE.Color(CONFIG.secondary) } } });
+    // the quad the lines are drawn with covers one tile of the canvas at a time
+    const quadGeo = new THREE.BufferGeometry(); quadGeo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(12), 3)); quadGeo.setIndex([0, 1, 2, 0, 2, 3]);
+    const quadScene = new THREE.Scene(), quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1); const quad = new THREE.Mesh(quadGeo, edgeMat); quad.frustumCulled = false; quadScene.add(quad);
+    const setQuad = (x0, y0, x1, y1) => { const p = quadGeo.attributes.position; p.setXYZ(0, x0, y0, 0); p.setXYZ(1, x1, y0, 0); p.setXYZ(2, x1, y1, 0); p.setXYZ(3, x0, y1, 0); p.needsUpdate = true; };   // NDC corners
 
     // ---- the model, baked into world space; parts are told apart by name (the loader writes spaces as underscores)
     const key = String(CONFIG.focus || 'FR').trim();
@@ -246,7 +250,7 @@
     }
     // ---- the path: spherical about a target that slides from the drone's centre to the motor, distance in log
     // space, heading and height easing between the two ends, the framing point too — one camera, really moving
-    let w = 1, h = 1, progress = 0, progressTarget = 0, shownProgress = -1; const camTarget = droneC.clone();
+    let w = 1, h = 1, progress = 0, progressTarget = 0, shownProgress = -1; const camTarget = droneC.clone(); const T = { nx: 1, ny: 1, w: 1, h: 1, g: 3, PR: 1, S: 1, W: 1, H: 1 };   // the edge pass's tiling
     const trackEl = (() => { const t = CONFIG.track; if (!t) return null; if (t.nodeType) return t; if (typeof t === 'string' && t.startsWith('closest:')) return host.closest(t.slice(8)); return document.querySelector(t); })();
     const readProgress = () => { if (!trackEl) return 1; const r = trackEl.getBoundingClientRect(), run = Math.max(1, r.height - h); return Math.min(1, Math.max(0, -r.top / run)); };
     function placeCam(e) {
@@ -266,20 +270,34 @@
     }
     function frame() {
       w = host.clientWidth || 1; h = host.clientHeight || 1; camera.aspect = w / h; camera.fov = +CONFIG.fov || 30;
-      // the canvas at the device's pixel ratio (capped), the edge pass supersampled above it, both within the pixel budget
-      let PR = Math.min(devicePixelRatio || 1, +CONFIG.pixelRatioCap || 2); const scale = Math.min(Math.max(1, +CONFIG.supersample || 1) * PR, Math.sqrt((+CONFIG.pixelBudget || 10e6) / (w * h)));
-      PR = Math.min(PR, scale); renderer.setPixelRatio(PR); renderer.setSize(w, h, false);
-      const rw = Math.round(w * scale), rh = Math.round(h * scale); rt.setSize(rw, rh); edgeMat.uniforms.uRes.value.set(rw, rh); edgeMat.uniforms.uOut.value.set(Math.round(w * PR), Math.round(h * PR));
-      edgeMat.uniforms.uWidth.value = Math.max(0.5, (+CONFIG.lineWidth || 1) * scale / 1.5);
+      // the canvas at the device's pixel ratio (capped); the edge pass at `supersample` times that, in as many tiles as
+      // the pixel budget (and the largest texture) asks for, each with a guard band so the lines run across tile edges
+      const PR = Math.min(devicePixelRatio || 1, +CONFIG.pixelRatioCap || 2); renderer.setPixelRatio(PR); renderer.setSize(w, h, false);
+      const S = Math.max(1, +CONFIG.supersample || 1), W = Math.round(w * PR), H = Math.round(h * PR), maxT = Math.min(8192, renderer.capabilities.maxTextureSize || 8192), budget = +CONFIG.pixelBudget || 8e6;
+      T.nx = Math.max(1, Math.ceil(W * S / maxT)); T.ny = Math.max(1, Math.ceil(H * S / maxT), Math.ceil(W * S * H * S / (budget * T.nx)));
+      T.w = Math.ceil(W / T.nx); T.h = Math.ceil(H / T.ny); T.g = 3; T.PR = PR; T.S = S; T.W = W; T.H = H;
+      const rw = Math.round((T.w + 2 * T.g) * S), rh = Math.round((T.h + 2 * T.g) * S); rt.setSize(rw, rh); edgeMat.uniforms.uRes.value.set(rw, rh);
+      edgeMat.uniforms.uWidth.value = Math.max(0.5, (+CONFIG.lineWidth || 1) * S * PR / 1.5);
       if (!trackEl) progress = progressTarget = 1; placeCam(ease(progress)); shownProgress = progress;
     }
     function render() {
-      for (const m of solids) { m.userData.faceMat = m.material; m.material = m.userData.idMat; }   // pass one: normals, part and depth, meshes only
+      renderer.setRenderTarget(null); renderer.clear(); renderer.render(scene, camera);   // the faces (occluders), ribs and grid, multisampled
+      const v = camera.view, fw = v.fullWidth, fh = v.fullHeight, ox = v.offsetX, oy = v.offsetY, vw = v.width, vh = v.height;   // the framing
+      for (const m of solids) { m.userData.faceMat = m.material; m.material = m.userData.idMat; }
       const lines = []; scene.traverse(o => { if (o.isLine || o.isLineSegments) { lines.push(o); o.visible = false; } });
-      renderer.setRenderTarget(rt); renderer.clear(); renderer.render(scene, camera);
+      const { nx, ny, w: tw, h: th, g, PR, W, H } = T;
+      for (let ty = 0; ty < ny; ty++) for (let tx = 0; tx < nx; tx++) {
+        const x0 = tx * tw, y0 = ty * th;   // the tile, in canvas pixels from the top left
+        // pass one, this tile plus its guard band: normals, part and depth, meshes only
+        camera.setViewOffset(fw, fh, ox + (x0 - g) / PR, oy + (y0 - g) / PR, (tw + 2 * g) / PR, (th + 2 * g) / PR); camera.updateProjectionMatrix();
+        renderer.setRenderTarget(rt); renderer.clear(); renderer.render(scene, camera);
+        // pass two: the lines, onto the tile's part of the canvas
+        edgeMat.uniforms.uTile.value.set(x0 - g, H - (y0 + th) - g, tw + 2 * g, th + 2 * g);
+        setQuad(x0 / W * 2 - 1, 1 - (y0 + th) / H * 2, (x0 + tw) / W * 2 - 1, 1 - y0 / H * 2);
+        renderer.setRenderTarget(null); renderer.render(quadScene, quadCam);
+      }
+      camera.setViewOffset(fw, fh, ox, oy, vw, vh); camera.updateProjectionMatrix();
       for (const m of solids) m.material = m.userData.faceMat; for (const l of lines) l.visible = true;
-      renderer.setRenderTarget(null); renderer.clear(); renderer.render(scene, camera);   // pass two: faces (occluders), ribs and grid
-      renderer.render(quadScene, quadCam);                                                  // pass three: the lines
     }
     // ---- the loop: the camera follows the scroll through the track, damped; the props turn with the scroll
     let dirty = true, alive = true, visible = true, lastT = performance.now(), spin = 0, spinTarget = 0, idle = 0;
@@ -313,7 +331,7 @@
     return {
       set(patch) { Object.assign(CONFIG, patch || {}); for (const k of COLOR_KEYS) if (patch && k in patch) { RAW[k] = patch[k]; lastColors = ''; } edgeMat.uniforms.uDepthT.value = +CONFIG.depthEdge || 0.012; edgeMat.uniforms.uNormT.value = +CONFIG.normalEdge || 0.25; if (patch && ('grid' in patch || 'gridFade' in patch)) buildGrid(); applyColors(); onScroll(); frame(); },
       setProgress(p) { progressTarget = progress = Math.min(1, Math.max(0, +p || 0)); placeCam(ease(progress)); shownProgress = progress; },
-      get state() { return { focus: key, azimuth: azimuth(), startAzimuth: azimuth0(), progress, motorHeight: motorH, triangles: tris, props: props.length, pixelRatio: renderer.getPixelRatio(), edgePass: [rt.width, rt.height] }; },
+      get state() { return { focus: key, azimuth: azimuth(), startAzimuth: azimuth0(), progress, motorHeight: motorH, triangles: tris, props: props.length, pixelRatio: renderer.getPixelRatio(), edgePass: [rt.width, rt.height], tiles: T.nx * T.ny }; },
       destroy() { alive = false; clearInterval(themeWatch); io.disconnect(); removeEventListener('scroll', onScroll); if (ro) ro.disconnect(); else removeEventListener('resize', frame); rt.dispose(); renderer.dispose(); renderer.domElement.remove(); }
     };
   }
@@ -326,5 +344,5 @@
       .then(() => new Promise((res, rej) => new global.THREE.GLTFLoader().load(CONFIG.model || (HERE + 'heavy_lift_drone_model.glb'), res, undefined, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.2.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.3.0' };
 })(typeof window !== 'undefined' ? window : this);
