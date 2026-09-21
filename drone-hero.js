@@ -36,6 +36,7 @@
     loader: 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js',
     focus: 'FL',               // which motor the path ends on: FR, FL, BR, BL, or with ' 2' for the lower ring of the coaxial pairs
     track: '',                 // the tall section the canvas is pinned inside ('closest:.section_hero', a selector, or an element); the camera's path runs over its scroll. '' = hold the end view
+    runEnd: '',                // optional: a selector (inside the track) for the element whose top reaching the canvas's top ends the path — e.g. the section the drone is meant to arrive in — instead of the track's own end
     damping: 0.12,             // how closely the camera follows the scroll (per frame at 60fps); 1 = instantly
     fov: 30,                   // the camera's vertical field of view, degrees
     // the end of the path: beneath the focused motor and out to its side, looking up at it. Headings are about the
@@ -295,7 +296,10 @@
     // space, heading and height easing between the two ends, the framing point too — one camera, really moving
     let w = 1, h = 1, progress = 0, progressTarget = 0, shownProgress = -1; const camTarget = droneC.clone(); const T = { nx: 1, ny: 1, w: 1, h: 1, g: 3, PR: 1, S: 1, W: 1, H: 1 };   // the edge pass's tiling
     const trackEl = (() => { const t = CONFIG.track; if (!t) return null; if (t.nodeType) return t; if (typeof t === 'string' && t.startsWith('closest:')) return host.closest(t.slice(8)); return document.querySelector(t); })();
-    const readProgress = () => { if (!trackEl) return 1; const r = trackEl.getBoundingClientRect(), run = Math.max(1, r.height - h); return Math.min(1, Math.max(0, -r.top / run)); };
+    const endEl = trackEl && CONFIG.runEnd ? (typeof CONFIG.runEnd === 'string' ? trackEl.querySelector(CONFIG.runEnd) : CONFIG.runEnd) : null;
+    const readProgress = () => { if (!trackEl) return 1; const r = trackEl.getBoundingClientRect();
+      if (endEl) { const er = endEl.getBoundingClientRect(), hr = host.getBoundingClientRect(); return Math.min(1, Math.max(0, 1 - (er.top - hr.top) / Math.max(1, er.top - r.top))); }   // done when the end element reaches the canvas's top
+      const run = Math.max(1, r.height - h); return Math.min(1, Math.max(0, -r.top / run)); };
     function placeCam(e) {
       const fov = (+CONFIG.fov || 30) * D2R, a = w / h, hfov = 2 * Math.atan(Math.tan(fov / 2) * a);
       const d0 = fitDistance(azimuth0(), +CONFIG.startElevation || 0, fov, a) * (+CONFIG.margin || 1.25);
@@ -390,5 +394,5 @@
       .then(() => new Promise((res, rej) => new global.THREE.GLTFLoader().load(CONFIG.model || (HERE + 'heavy_lift_drone_model.glb'), res, undefined, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.6.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.7.0' };
 })(typeof window !== 'undefined' ? window : this);
