@@ -56,11 +56,13 @@
     ribs: 24,                  // vertical ribs round the focused motor's casing; 0 = none
     lineWidth: 1,              // line thickness, in screen pixels
     depthEdge: 0.012, normalEdge: 0.25,   // how big a jump in depth (relative) or in normal (1 - cos) draws a line
+    supersample: 2,            // the edge pass runs at this many times the canvas resolution and averages, so the lines are antialiased
+    pixelBudget: 10e6,         // the most pixels the edge pass renders per frame; past it the supersampling, then the pixel ratio, come down
     primary: 'var(--drone-primary, var(--topo-label, #f2f2f0))',
     secondary: 'var(--drone-secondary, var(--topo-label-secondary, #9a9a96))',
     face: 'var(--drone-face, var(--topo-block, #222322))',
     background: 'var(--drone-bg, transparent)',
-    pixelRatioCap: 1.5
+    pixelRatioCap: 2
   };
   const COLOR_KEYS = ['primary', 'secondary', 'face', 'background'];
 
@@ -106,15 +108,17 @@
   const ID_VERT = 'varying vec3 vN; void main(){ vN = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }';
   const ID_FRAG = 'uniform float uId; varying vec3 vN; void main(){ gl_FragColor = vec4(normalize(vN) * 0.5 + 0.5, uId); }';
   const EDGE_FRAG = `
-    uniform sampler2D tN, tD; uniform vec2 uRes; uniform float uNear, uFar, uWidth, uDepthT, uNormT; uniform vec3 uC1, uC2; varying vec2 vUv;
+    uniform sampler2D tN, tD; uniform vec2 uRes, uOut; uniform float uNear, uFar, uWidth, uDepthT, uNormT; uniform vec3 uC1, uC2; varying vec2 vUv;
     float lin(float z){ float zn = 2.0 * z - 1.0; return 2.0 * uNear * uFar / (uFar + uNear - zn * (uFar - uNear)); }
-    void main(){
-      vec2 px = uWidth / uRes; vec4 c = texture2D(tN, vUv); float d = lin(texture2D(tD, vUv).x); vec3 n = c.xyz * 2.0 - 1.0;
-      if (c.a < 0.01) discard;                                   // background: lines are drawn from the object's side
+    // the line at one point of the (supersampled) pass: 0 = none, 1 = a line, and which colour it takes
+    float edgeAt(vec2 uv, out vec3 col){
+      vec2 px = uWidth / uRes; vec4 c = texture2D(tN, uv); float d = lin(texture2D(tD, uv).x); vec3 n = c.xyz * 2.0 - 1.0;
+      col = c.a > 0.75 ? uC1 : uC2;
+      if (c.a < 0.01) return 0.0;                                // background: lines are drawn from the object's side
       float e = 0.0;
       for (int i = 0; i < 2; i++) {                              // each axis: the two neighbours either side
         vec2 o = i == 0 ? vec2(px.x, 0.0) : vec2(0.0, px.y);
-        vec4 c1 = texture2D(tN, vUv + o), c2 = texture2D(tN, vUv - o); float d1 = lin(texture2D(tD, vUv + o).x), d2 = lin(texture2D(tD, vUv - o).x);
+        vec4 c1 = texture2D(tN, uv + o), c2 = texture2D(tN, uv - o); float d1 = lin(texture2D(tD, uv + o).x), d2 = lin(texture2D(tD, uv - o).x);
         bool own1 = abs(c1.a - c.a) < 0.002, own2 = abs(c2.a - c.a) < 0.002;   // the neighbour is on this same part
         // another part, or the background: the boundary is a line, owned by whichever side is nearer
         if (!own1 && (c1.a < 0.01 || d < d1)) e = 1.0;
@@ -129,8 +133,17 @@
             float key = dot(n, vec3(0.3, 0.59, 0.11)), keyn = dot(nn, vec3(0.3, 0.59, 0.11));
             e = max(e, key >= keyn ? smoothstep(uNormT, uNormT * 2.0, 1.0 - dot(n, nn)) : 0.0); } }
       }
-      if (e < 0.02) discard;
-      gl_FragColor = vec4(c.a > 0.75 ? uC1 : uC2, e);
+      return e;
+    }
+    void main(){
+      // four points inside this canvas pixel, averaged: coverage, so the line is antialiased (premultiplied out)
+      vec2 q = 0.25 / uOut; vec3 rgb = vec3(0.0), col; float a = 0.0, e;
+      e = edgeAt(vUv + vec2(-q.x, -q.y), col); rgb += col * e; a += e;
+      e = edgeAt(vUv + vec2( q.x, -q.y), col); rgb += col * e; a += e;
+      e = edgeAt(vUv + vec2(-q.x,  q.y), col); rgb += col * e; a += e;
+      e = edgeAt(vUv + vec2( q.x,  q.y), col); rgb += col * e; a += e;
+      if (a < 0.02) discard;
+      gl_FragColor = vec4(rgb, a) * 0.25;
     }`;
 
   function build(host, CONFIG, gltf) {
@@ -138,8 +151,8 @@
     const RAW = {}; for (const k of COLOR_KEYS) { RAW[k] = CONFIG[k]; CONFIG[k] = resolveColor(host, CONFIG[k]); }
     if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
     host.style.background = CONFIG.background; host.style.overflow = 'hidden';
-    const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true });
-    const PR = Math.min(devicePixelRatio || 1, CONFIG.pixelRatioCap); renderer.setPixelRatio(PR); renderer.setClearColor(0x000000, 0); renderer.autoClear = false;
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });   // the faces, ribs and grid get multisampling; the lines are supersampled in their own pass
+    renderer.setClearColor(0x000000, 0); renderer.autoClear = false;
     Object.assign(renderer.domElement.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', display: 'block' });
     host.appendChild(renderer.domElement);
     const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(+CONFIG.fov || 30, 1, 0.05, 200);
@@ -152,8 +165,8 @@
     const isGL2 = renderer.capabilities.isWebGL2;
     const depthTex = new THREE.DepthTexture(1, 1); depthTex.type = isGL2 ? THREE.UnsignedIntType : THREE.UnsignedShortType;
     const rt = new THREE.WebGLRenderTarget(1, 1, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthTexture: depthTex, depthBuffer: true, stencilBuffer: false });
-    const edgeMat = new THREE.ShaderMaterial({ transparent: true, depthTest: false, depthWrite: false, vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }', fragmentShader: EDGE_FRAG,
-      uniforms: { tN: { value: rt.texture }, tD: { value: depthTex }, uRes: { value: new THREE.Vector2(1, 1) }, uNear: { value: camera.near }, uFar: { value: camera.far }, uWidth: { value: 1 }, uDepthT: { value: +CONFIG.depthEdge || 0.012 }, uNormT: { value: +CONFIG.normalEdge || 0.25 }, uC1: { value: new THREE.Color(CONFIG.primary) }, uC2: { value: new THREE.Color(CONFIG.secondary) } } });
+    const edgeMat = new THREE.ShaderMaterial({ transparent: true, depthTest: false, depthWrite: false, blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendEquation: THREE.AddEquation, vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }', fragmentShader: EDGE_FRAG,
+      uniforms: { tN: { value: rt.texture }, tD: { value: depthTex }, uRes: { value: new THREE.Vector2(1, 1) }, uOut: { value: new THREE.Vector2(1, 1) }, uNear: { value: camera.near }, uFar: { value: camera.far }, uWidth: { value: 1 }, uDepthT: { value: +CONFIG.depthEdge || 0.012 }, uNormT: { value: +CONFIG.normalEdge || 0.25 }, uC1: { value: new THREE.Color(CONFIG.primary) }, uC2: { value: new THREE.Color(CONFIG.secondary) } } });
     const quadScene = new THREE.Scene(), quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1); quadScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), edgeMat));
 
     // ---- the model, baked into world space; parts are told apart by name (the loader writes spaces as underscores)
@@ -252,8 +265,12 @@
       fadeGrid(); dirty = true;
     }
     function frame() {
-      w = host.clientWidth || 1; h = host.clientHeight || 1; renderer.setSize(w, h, false); camera.aspect = w / h; camera.fov = +CONFIG.fov || 30;
-      rt.setSize(Math.round(w * PR), Math.round(h * PR)); edgeMat.uniforms.uRes.value.set(Math.round(w * PR), Math.round(h * PR)); edgeMat.uniforms.uWidth.value = Math.max(0.5, (+CONFIG.lineWidth || 1) * PR / 1.5);
+      w = host.clientWidth || 1; h = host.clientHeight || 1; camera.aspect = w / h; camera.fov = +CONFIG.fov || 30;
+      // the canvas at the device's pixel ratio (capped), the edge pass supersampled above it, both within the pixel budget
+      let PR = Math.min(devicePixelRatio || 1, +CONFIG.pixelRatioCap || 2); const scale = Math.min(Math.max(1, +CONFIG.supersample || 1) * PR, Math.sqrt((+CONFIG.pixelBudget || 10e6) / (w * h)));
+      PR = Math.min(PR, scale); renderer.setPixelRatio(PR); renderer.setSize(w, h, false);
+      const rw = Math.round(w * scale), rh = Math.round(h * scale); rt.setSize(rw, rh); edgeMat.uniforms.uRes.value.set(rw, rh); edgeMat.uniforms.uOut.value.set(Math.round(w * PR), Math.round(h * PR));
+      edgeMat.uniforms.uWidth.value = Math.max(0.5, (+CONFIG.lineWidth || 1) * scale / 1.5);
       if (!trackEl) progress = progressTarget = 1; placeCam(ease(progress)); shownProgress = progress;
     }
     function render() {
@@ -296,7 +313,7 @@
     return {
       set(patch) { Object.assign(CONFIG, patch || {}); for (const k of COLOR_KEYS) if (patch && k in patch) { RAW[k] = patch[k]; lastColors = ''; } edgeMat.uniforms.uDepthT.value = +CONFIG.depthEdge || 0.012; edgeMat.uniforms.uNormT.value = +CONFIG.normalEdge || 0.25; if (patch && ('grid' in patch || 'gridFade' in patch)) buildGrid(); applyColors(); onScroll(); frame(); },
       setProgress(p) { progressTarget = progress = Math.min(1, Math.max(0, +p || 0)); placeCam(ease(progress)); shownProgress = progress; },
-      get state() { return { focus: key, azimuth: azimuth(), startAzimuth: azimuth0(), progress, motorHeight: motorH, triangles: tris, props: props.length }; },
+      get state() { return { focus: key, azimuth: azimuth(), startAzimuth: azimuth0(), progress, motorHeight: motorH, triangles: tris, props: props.length, pixelRatio: renderer.getPixelRatio(), edgePass: [rt.width, rt.height] }; },
       destroy() { alive = false; clearInterval(themeWatch); io.disconnect(); removeEventListener('scroll', onScroll); if (ro) ro.disconnect(); else removeEventListener('resize', frame); rt.dispose(); renderer.dispose(); renderer.domElement.remove(); }
     };
   }
@@ -309,5 +326,5 @@
       .then(() => new Promise((res, rej) => new global.THREE.GLTFLoader().load(CONFIG.model || (HERE + 'heavy_lift_drone_model.glb'), res, undefined, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.1.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.2.0' };
 })(typeof window !== 'undefined' ? window : this);

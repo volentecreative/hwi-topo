@@ -383,7 +383,10 @@ the front), `startElevation` (8°, a touch above level), `margin` (1.25 round th
 is fitted to the frame from that heading). Also
 `propScroll` (turns per 1000px scrolled, 0.35) and `propSeconds` (idle turn, 0 = still); `props`
 (`'blades'` or `'model'`), `blades`, `bladeChord`, `bladeTwist`; `grid` (cell in motor heights, 0.5)
-and `gridFade` (0.3); `ribs` (24); `lineWidth` (1px), `depthEdge` (0.012) and `normalEdge` (0.25); and
+and `gridFade` (0.3); `ribs` (24); `lineWidth` (1px), `depthEdge` (0.012) and `normalEdge` (0.25);
+`supersample` (2: the edge pass runs at twice the canvas resolution and averages, so the lines are
+antialiased; the faces, ribs and grid are multisampled), `pixelBudget` (10 million pixels for the edge
+pass per frame; past it the supersampling, then the pixel ratio, come down) and `pixelRatioCap` (2); and
 the colours `primary`, `secondary`, `face`, `background`, from `--drone-primary`, `--drone-secondary`,
 `--drone-face`, `--drone-bg` with the map's `--topo-label`, `--topo-label-secondary` and
 `--topo-block` as fallbacks. The model loads from beside the script (`model` overrides), and the
