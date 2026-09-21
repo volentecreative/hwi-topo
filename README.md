@@ -301,12 +301,13 @@ once so that every state of its animation fits its box.
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/gh/volentecreative/hwi-topo@3916d3e/iso-marks.js"></script>
 <script>
-  IsoMarks.flag('#flag', { hover: '.ethos-card' });       // the mark, extruded; on hover it splits into three flags
-  IsoMarks.conveyor('#belt', { hover: '.ethos-card' });   // a belt out of a gate; every hover runs it one box along
+  IsoMarks.flag('#flag', { hover: 'closest:.ethos-card' });       // the mark, extruded; on hover it splits into three flags
+  IsoMarks.conveyor('#belt', { hover: 'closest:.ethos-card' });   // a belt out of a gate; every hover runs it one box along
 </script>
 ```
 
-Both take `hover` (the element whose hover drives them, the host by default; keyboard focus counts,
+Both take `hover` (the element whose hover drives them: a selector, `closest:.card` for an ancestor of the
+host, or an element; the host by default; keyboard focus counts,
 and on touch a tap stands in), `azimuth` and `elevation` (45 and 30 by default; 35.264 is true
 isometric), `margin`, `shade` (0 keeps every face the same colour, 0.08 lightens the tops), and the
 colours `faceColor`, `lineColor`, `background`, which default to `--iso-face`, `--iso-line` and

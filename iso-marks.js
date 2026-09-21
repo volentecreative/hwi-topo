@@ -22,7 +22,7 @@
     azimuth: 45,           // camera heading, degrees; 45 = true isometric, looking from the front-left
     elevation: 30,         // camera height, degrees above the ground; 35.264 = true isometric, 30 sits a little lower
     margin: 1.06,          // breathing room around the animation's extremes, which the frame is fitted to
-    hover: '',             // selector of the element whose hover drives it; '' = the host itself
+    hover: '',             // the element whose hover drives it: a selector, 'closest:.card' (an ancestor of the host), or an element; '' = the host
     shade: 0,              // 0 = every face the same colour; 0.08 lightens the tops a little
     faceColor: 'var(--iso-face, var(--topo-block, #3a3a3a))',
     lineColor: 'var(--iso-line, var(--topo-label, #f2f2f0))',
@@ -96,7 +96,8 @@
     }
     requestAnimationFrame(frame);
     // hover on the target (or the host), keyboard focus too; on touch a tap stands in for a hover
-    const hov = (CONFIG.hover && document.querySelector(CONFIG.hover)) || host;
+    // 'closest:.card' walks up from the host; any other string is a selector; an element is taken as is
+    const hs = CONFIG.hover, hov = (hs && hs.nodeType ? hs : typeof hs === 'string' && hs.startsWith('closest:') ? host.closest(hs.slice(8)) : hs ? document.querySelector(hs) : null) || host;
     hov.addEventListener('pointerenter', ev => { if (ev.pointerType !== 'touch') S.enter(); });
     hov.addEventListener('pointerleave', ev => { if (ev.pointerType !== 'touch') S.leave(); });
     hov.addEventListener('pointerdown', ev => { if (ev.pointerType === 'touch') S.tap(); });
