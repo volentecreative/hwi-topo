@@ -316,9 +316,12 @@ which default to `--iso-face`, `--iso-line` and `--iso-bg` and fall back to the 
 colours: faces in the page background (only the edges show, and near faces hide far ones, as the
 relief hides contours), lines in the label colour.
 
-**The flag** lies flat and is extruded up into a block (`depth`, 0.8 of its width). On hover the block
-turns into `slices` (3) flags, each `plate` (1) pixel thick, at the bottom, the top and evenly between;
-the footprint never changes, and it closes again when the pointer leaves. The mark's polygons are
+**The flag** lies flat and is extruded up into a block (`depth`, 0.8 of its width). On hover it comes
+apart one layer at a time, top first: each layer flattens onto the cut below it and floats up to its
+level, so the block becomes `slices` (3) flags, each `plate` (1) pixel thick, at the bottom, the top
+and evenly between; the footprint never changes. Leaving runs the same path backwards, so the return
+reads as assembly: the bottom layer forms, the middle drops onto it and closes the gap, then the top.
+`stagger` (0.55) is each layer's share of the animation; the layers' windows overlap. The mark's polygons are
 traced from the reference render; pass `mark: { polys, width, height }` (polygons in flag units, u
 across from the hoist, v down from the top) to use the real SVG's shapes.
 

@@ -140,12 +140,15 @@
     mark: null,            // { polys:[[[u,v],...],...], width, height } — the default is the traced HWI mark
     depth: 0.8,            // the block's height as a fraction of the mark's width
     slices: 3,             // how many flags it turns into
-    plate: 1               // how thick each flag is when split, in screen pixels
+    plate: 1,              // how thick each flag is when split, in screen pixels
+    stagger: 0.55          // each layer's share of the animation; the layers' windows overlap, top first apart, bottom first together
   });
   function flagScene({ THREE, scene, solid, dispose, CONFIG, worldPerPx }) {
-    // the block is N stacked slices of the whole mark; on hover each thins to a plate and slides to its level —
-    // the bottom of the block, the top, and evenly between — so the footprint never changes and nothing moves
-    // outside it. The un-split block's edges are a separate set, shown while it is whole, so the cuts never show
+    // the block is N stacked slices of the whole mark. On hover it comes apart one layer at a time, top first: a
+    // layer flattens onto its own floor (the cut below it) and then floats up to its level — the top of the block,
+    // the bottom, and evenly between — so the footprint never changes. Leaving runs the same path backwards, so the
+    // return reads as assembly: the bottom layer forms, the middle drops onto it and closes the gap, then the top.
+    // The un-split block's edges are a separate set, shown while it is whole, so the cuts never show
     let W, Hm, D, N, sliceH, whole; const slices = [];
     const extrude = (shapes, depth) => { const g = new THREE.ExtrudeGeometry(shapes, { depth, bevelEnabled: false }); g.rotateX(-Math.PI / 2); return g; };   // shape plane → the ground, extrusion → up
     function rebuild() {
@@ -162,13 +165,19 @@
       bounds() { const pts = []; for (const x of [-W / 2, W / 2]) for (const z of [-Hm / 2, Hm / 2]) pts.push(new THREE.Vector3(x, 0, z), new THREE.Vector3(x, D, z)); return pts; },
       enter() { target = 1; }, leave() { target = 0; }, tap() { target = target ? 0 : 1; },
       set(o) { if ('depth' in o || 'slices' in o || 'mark' in o) rebuild(); shown = -1; },
-      state() { return { split: ease(p) }; },
+      state() { return { split: p }; },
       update(dt, reduced) {
         if (p === target && shown === p) return false;
-        p = reduced ? target : toward(p, target, CONFIG.seconds, dt); const e = ease(p);
+        p = reduced ? target : toward(p, target, CONFIG.seconds, dt);
         const t1 = Math.max(0.002, (+CONFIG.plate || 1) * worldPerPx() / Math.max(0.2, Math.cos(CONFIG.elevation * Math.PI / 180)));   // a plate: so many pixels tall on screen
-        for (const s of slices) { const th = sliceH + (t1 - sliceH) * e, y0 = s.k * sliceH * (1 - e) + s.k * (D - t1) / (N - 1) * e; s.grp.scale.y = th / sliceH; s.grp.position.y = y0; }
-        const open = Math.min(1, e / 0.08); whole.children[1].material.opacity = 1 - open; whole.visible = open < 1;
+        const L = CONFIG.stagger, clamp = v => Math.min(1, Math.max(0, v));   // each layer has its own window of the progress; the windows overlap
+        for (const s of slices) {
+          const w0 = (N - 1 - s.k) * (1 - L) / Math.max(1, N - 1), u = clamp((p - w0) / L);   // top layer first on the way apart
+          const a = ease(clamp(u / 0.6)), b = ease(clamp((u - 0.6) / 0.4));                    // a: flatten onto the floor; b: float up to the level
+          const th = sliceH + (t1 - sliceH) * a, y0 = s.k * sliceH + (s.k * (D - t1) / (N - 1) - s.k * sliceH) * b;
+          s.grp.scale.y = th / sliceH; s.grp.position.y = y0;
+        }
+        const open = Math.min(1, p / 0.03); whole.children[1].material.opacity = 1 - open; whole.visible = open < 1;
         for (const s of slices) { s.grp.children[1].material.opacity = open; s.grp.children[1].visible = open > 0; }
         shown = p; return true;
       }
