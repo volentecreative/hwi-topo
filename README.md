@@ -331,7 +331,8 @@ across from the hoist, v down from the top) to use the real SVG's shapes.
 
 **The conveyor** shows `boxes` (2) on the belt: one nosing out of the gate, then one per `pitch`
 (1.45 belt widths), with lines across the belt every `dividers` (0.36) that travel with it, and a row of
-little roller squares along its near side every `rollers` (0.3). Every hover advances the belt one box: the front box is clipped away at the end of
+little roller squares along its near side every `rollers` (0.3); each box wears a strip of `tape` (0.16 wide)
+along the belt direction, folded down its ends. Every hover advances the belt one box: the front box is clipped away at the end of
 the belt, shortening to nothing as it passes, and the next comes through the gate. It never runs
 backwards, and hovers queue, so a second hover mid-cycle runs it a second box along.
 

@@ -200,13 +200,14 @@
     boxes: 2,              // boxes on the belt at rest (one in the gate, then one per pitch)
     box: 0.72,             // box size, in belt widths
     pitch: 1.45,           // spacing along the belt, in belt widths
+    tape: 0.16,            // width of the strip of tape over each box, in belt widths; it runs along the belt and folds down the ends. 0 = none
     dividers: 0.36,        // spacing of the lines across the belt, in belt widths; they travel with it. 0 = none
     rollers: 0.3           // spacing of the little roller squares along the belt's near side, in belt widths. 0 = none
   });
   function conveyorScene({ THREE, scene, solid, dispose, lineMaterial, CONFIG }) {
     // belt units: width 1 (x), along the belt is +z (toward the viewer); the gate stands at the back
-    const BW = 1, BT = 0.08, Z0 = -1.4, Z1 = 1.85, BX = 0.15;           // belt: x centred on BX, from behind the gate to the front end
-    const G = { x0: -0.95, x1: 0.85, y1: 1.6, z0: -0.65, z1: -0.25, ox0: -0.36, ox1: 0.66, oy0: BT, oy1: 0.98 };   // the gate and its opening
+    const BW = 1, BT = 0.08, Z0 = -0.7, Z1 = 1.85, BX = 0.15;            // belt: x centred on BX, from just behind the gate's back face to the front end
+    const G = { x0: -0.66, x1: 0.96, y1: 1.6, z0: -0.65, z1: -0.25, ox0: -0.36, ox1: 0.66, oy0: BT, oy1: 0.98 };   // the gate and its opening; the posts either side are the same width
     const belt = solid(new THREE.BoxGeometry(BW, BT, Z1 - Z0)); belt.position.set(BX, BT / 2, (Z0 + Z1) / 2); scene.add(belt);
     { const s = new THREE.Shape(); s.moveTo(G.x0, 0); s.lineTo(G.x1, 0); s.lineTo(G.x1, G.y1); s.lineTo(G.x0, G.y1); s.closePath();
       const hole = new THREE.Path(); hole.moveTo(G.ox0, G.oy0); hole.lineTo(G.ox1, G.oy0); hole.lineTo(G.ox1, G.oy1); hole.lineTo(G.ox0, G.oy1); hole.closePath(); s.holes.push(hole);
@@ -222,14 +223,19 @@
       for (; n < a.length; n++) a[n] = 0; dividers.geometry.attributes.position.needsUpdate = true; }
     let boxes = [], B, P, M;
     function rebuild() { for (const b of boxes) dispose(b); boxes = []; B = CONFIG.box; P = CONFIG.pitch; M = Math.max(1, CONFIG.boxes | 0) + 2;   // +1 waiting behind the gate, +1 on its way off
-      for (let j = 0; j < M; j++) { const b = solid(new THREE.BoxGeometry(B, B, B)); scene.add(b); boxes.push(b); } placeDividers(0); }
+      for (let j = 0; j < M; j++) { const b = solid(new THREE.BoxGeometry(B, B, B)); if (CONFIG.tape > 0) b.add(tape(B, CONFIG.tape)); scene.add(b); boxes.push(b); } placeDividers(0); }
+    // a strip of tape over a box: two lines along the top, folding a little way down each end (box-local units)
+    function tape(B, tw) { const a = [], h = B / 2, x0 = -tw / 2, x1 = tw / 2, d = B * 0.24, seg = (...p) => a.push(...p);
+      for (const x of [x0, x1]) { seg(x, h, -h, x, h, h); seg(x, h, h, x, h - d, h); seg(x, h, -h, x, h - d, -h); }   // along the top, then down the front and back faces
+      seg(x0, h - d, h, x1, h - d, h); seg(x0, h - d, -h, x1, h - d, -h);   // the tape's ends
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(a, 3)); const l = new THREE.LineSegments(g, lineMat); l.renderOrder = 1; return l; }
     rebuild();
     const ZM = G.z1 + B * 0.5 - 0.36;   // slot 0: the box in the mouth of the gate, nosing out of it
     let cycles = 0, queued = 0, p = 0, shown = -1;   // cycles done, cycles still to run, progress through the current one
     const slotOf = (j, ph) => ((j + ph) % M + M) % M - 1;   // slot -1 waits behind the gate, 0 is in the gate, then one per pitch; the last slot is off the end
     function place(b, s) {
       const z = ZM + s * P, zb = z - B / 2, zf = Math.min(z + B / 2, Z1), len = zf - zb;   // clipped at the end of the belt: the box keeps its nose on the end and shortens to nothing
-      b.visible = s > -0.42 && len > 0.002; if (!b.visible) return;
+      b.visible = s > -0.3 && len > 0.002; if (!b.visible) return;   // hidden until it is fully behind the gate's face
       b.scale.z = len / B; b.position.set(BX, BT + B / 2, (zb + zf) / 2);
     }
     return {
@@ -240,7 +246,7 @@
         for (const s of [0, M - 2]) { const z = ZM + s * P; for (const dx of [-B / 2, B / 2]) for (const dy of [0, B]) for (const dz of [-B / 2, B / 2]) add(BX + dx, BT + dy, Math.min(z + dz, Z1)); }
         return pts; },
       enter() { queued += 1; }, leave() {}, tap() { queued += 1; },
-      set(o) { if ('boxes' in o || 'box' in o || 'pitch' in o) rebuild(); shown = -1; },
+      set(o) { if ('boxes' in o || 'box' in o || 'pitch' in o || 'tape' in o) rebuild(); shown = -1; },
       state() { return { phase: cycles + ease(p), queued }; },
       update(dt, reduced) {
         if (p === 0 && queued === 0 && shown === cycles) return false;
