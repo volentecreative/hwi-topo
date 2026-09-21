@@ -12,7 +12,8 @@
  *
  * The model (heavy_lift_drone_model.glb, beside this script) is drawn as lines found on screen: a first pass writes
  * each pixel's normal, depth and part, a second draws a one-pixel line wherever those jump — silhouettes and creases
- * alike, the same weight everywhere, with nothing behind showing through. The focused motor's casing (base, coil,
+ * alike, the same weight everywhere, with nothing behind showing through. The landing-gear struts, which the model
+ * stops short, are carried on down to the skids. The focused motor's casing (base, coil,
  * cap, shaft) draws in the primary colour, with vertical ribs; everything else in the secondary. The model's
  * propellers are replaced with generated blades that turn as the page scrolls, neighbours counter-rotating. A floor
  * grid fades toward the frame's edges. With `track` set, the camera dollies along a path over that section's scroll:
@@ -30,22 +31,23 @@
   const DEFAULTS = {
     model: '',                 // URL of the GLB; '' = heavy_lift_drone_model.glb beside this script
     loader: 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js',
-    focus: 'FR',               // which motor: FR, FL, BR, BL, or with ' 2' for the lower ring of the coaxial pairs
+    focus: 'FL',               // which motor: FR, FL, BR, BL, or with ' 2' for the lower ring of the coaxial pairs
     track: '',                 // the tall section the canvas is pinned inside ('closest:.section_hero', a selector, or an element); the camera's path runs over its scroll. '' = hold the end view
     damping: 0.12,             // how closely the camera follows the scroll (per frame at 60fps); 1 = instantly
     fov: 30,                   // the camera's vertical field of view, degrees
-    // the end of the path: beneath the focused motor, looking up at it
-    azimuth: 'auto',           // camera heading in degrees, or 'auto': side-on to the focused arm (arm to the right), turned by `turn`
-    turn: -28,                 // degrees the auto heading swings round; negative swings the camera out to the motor's outer side, so the arm recedes toward the body
-    elevation: -12,            // camera height above the horizon, degrees; negative looks up from below
+    // the end of the path: beneath the focused motor and out to its side, looking up at it. Headings are about the
+    // drone: 0 = from the front, positive = round to the drone's right, negative = round to its left
+    azimuth: -28,              // camera heading in degrees at the end; or 'auto': side-on to the focused arm, turned by `turn`
+    turn: -28,                 // (only with azimuth 'auto') degrees the side-on heading swings round
+    elevation: -14,            // camera height above the horizon at the end, degrees; negative looks up from below
     zoom: 0.36,                // the focused motor's height (base to cap) as a fraction of the frame's height
     point: { x: 0.5, y: 0.5 },         // where the motor sits in the frame (fractions of width and height)
     pointNarrow: { x: 0.5, y: 0.45 },  // … on screens up to `breakpoint` wide
     breakpoint: 991,
-    // the start of the path: the whole aircraft, centred, from above
-    startElevation: 24,        // degrees above the horizon
-    sweep: 40,                 // degrees of heading the camera swings through on the way down
-    margin: 0.95,              // breathing room round the whole drone at the start (its bounding sphere over-estimates it, so a little under 1 still leaves room)
+    // the start of the path: the whole aircraft, centred, level, from the front
+    startAzimuth: 0,           // camera heading at the start; 0 = the front view
+    startElevation: 8,         // degrees above the horizon at the start; a little above level, so the floor grid and the blades' faces show
+    margin: 1.25,              // breathing room round the whole drone at the start (1 = its silhouette touches the frame)
     propScroll: 0.35,          // propeller turns per 1000px of scrolling; 0 = the props do not follow the scroll
     propSeconds: 0,            // seconds per idle turn of every propeller; 0 = still unless scrolled
     props: 'blades',           // 'blades': generated blades in place of the model's; 'model': the model's own
@@ -98,8 +100,9 @@
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals(); return g;
   }
 
-  // the edge pass: pass one writes normal (rgb) and part (a) with depth; pass two draws a line on the nearer side of
-  // any jump in depth or normal between a pixel and its neighbours, in that part's colour
+  // the edge pass: pass one writes normal (rgb) and part (a: one id per mesh, the focused motor's casing in the top
+  // range) with depth; pass two draws a line, in that part's colour, on the nearer side wherever two parts meet on
+  // screen (or a part meets the background), on a part's own silhouette over itself, and along its creases
   const ID_VERT = 'varying vec3 vN; void main(){ vN = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }';
   const ID_FRAG = 'uniform float uId; varying vec3 vN; void main(){ gl_FragColor = vec4(normalize(vN) * 0.5 + 0.5, uId); }';
   const EDGE_FRAG = `
@@ -112,17 +115,19 @@
       for (int i = 0; i < 2; i++) {                              // each axis: the two neighbours either side
         vec2 o = i == 0 ? vec2(px.x, 0.0) : vec2(0.0, px.y);
         vec4 c1 = texture2D(tN, vUv + o), c2 = texture2D(tN, vUv - o); float d1 = lin(texture2D(tD, vUv + o).x), d2 = lin(texture2D(tD, vUv - o).x);
-        // depth: a surface seen at a grazing angle changes depth steadily, a silhouette breaks it — so test the
-        // second difference, and let the nearer side of the break own the line
-        float bend = abs(d1 + d2 - 2.0 * d) / d;
-        float ed = smoothstep(uDepthT, uDepthT * 3.0, bend) * step(d, max(d1, d2) - uDepthT * 0.5 * d);
-        // normal: a crease between two faces of one surface; the side with the greater normal key draws it
-        float en = 0.0;
-        for (int k = 0; k < 2; k++) { vec4 cn = k == 0 ? c1 : c2; float dn = k == 0 ? d1 : d2;
-          if (cn.a > 0.01 && abs(dn - d) / d < uDepthT * 2.0) { vec3 nn = normalize(cn.xyz * 2.0 - 1.0);
+        bool own1 = abs(c1.a - c.a) < 0.002, own2 = abs(c2.a - c.a) < 0.002;   // the neighbour is on this same part
+        // another part, or the background: the boundary is a line, owned by whichever side is nearer
+        if (!own1 && (c1.a < 0.01 || d < d1)) e = 1.0;
+        if (!own2 && (c2.a < 0.01 || d < d2)) e = 1.0;
+        // this part over itself: a surface seen at a grazing angle changes depth steadily, a silhouette breaks it —
+        // so test the second difference, and let the nearer side of the break own the line
+        if (own1 && own2) { float bend = abs(d1 + d2 - 2.0 * d) / d;
+          e = max(e, smoothstep(uDepthT, uDepthT * 3.0, bend) * step(d, max(d1, d2) - uDepthT * 0.5 * d)); }
+        // a crease between two faces of this part; the side with the greater normal key draws it
+        for (int k = 0; k < 2; k++) { vec4 cn = k == 0 ? c1 : c2; float dn = k == 0 ? d1 : d2; bool own = k == 0 ? own1 : own2;
+          if (own && abs(dn - d) / d < uDepthT * 2.0) { vec3 nn = normalize(cn.xyz * 2.0 - 1.0);
             float key = dot(n, vec3(0.3, 0.59, 0.11)), keyn = dot(nn, vec3(0.3, 0.59, 0.11));
-            en = max(en, key >= keyn ? smoothstep(uNormT, uNormT * 2.0, 1.0 - dot(n, nn)) : 0.0); } }
-        e = max(e, max(ed, en));
+            e = max(e, key >= keyn ? smoothstep(uNormT, uNormT * 2.0, 1.0 - dot(n, nn)) : 0.0); } }
       }
       if (e < 0.02) discard;
       gl_FragColor = vec4(c.a > 0.75 ? uC1 : uC2, e);
@@ -139,10 +144,10 @@
     host.appendChild(renderer.domElement);
     const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(+CONFIG.fov || 30, 1, 0.05, 200);
     const faceMat = new THREE.MeshBasicMaterial({ color: CONFIG.face, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
-    const idMat1 = new THREE.ShaderMaterial({ vertexShader: ID_VERT, fragmentShader: ID_FRAG, uniforms: { uId: { value: 1 } } }), idMat2 = new THREE.ShaderMaterial({ vertexShader: ID_VERT, fragmentShader: ID_FRAG, uniforms: { uId: { value: 0.5 } } });
     const lineMat1 = new THREE.LineBasicMaterial({ color: CONFIG.primary });
-    const solids = [];   // {mesh, idMat}
-    const solid = (g, mine) => { const m = new THREE.Mesh(g, faceMat); m.userData.idMat = mine ? idMat1 : idMat2; solids.push(m); scene.add(m); return m; };
+    const solids = []; let ids = [0, 255];   // part ids: the rest count up from 1, the focused motor's casing down from 255 (the edge pass colours ids above 191 primary)
+    const solid = (g, mine) => { const m = new THREE.Mesh(g, faceMat); const id = mine ? ids[1]-- : ++ids[0];
+      m.userData.idMat = new THREE.ShaderMaterial({ vertexShader: ID_VERT, fragmentShader: ID_FRAG, uniforms: { uId: { value: id / 255 } } }); solids.push(m); scene.add(m); return m; };
     // the edge pass's target and quad
     const isGL2 = renderer.capabilities.isWebGL2;
     const depthTex = new THREE.DepthTexture(1, 1); depthTex.type = isGL2 ? THREE.UnsignedIntType : THREE.UnsignedShortType;
@@ -159,9 +164,21 @@
     const motorBox = new THREE.Box3(), armBox = new THREE.Box3(), all = new THREE.Box3(); let coilBox = new THREE.Box3(), coilH = 0;
     const hubs = {}, propInfo = {};
     const meshes = []; gltf.scene.traverse(o => { if (o.isMesh && !skip(o.name)) meshes.push(o); });
+    // the skids (the long tubes), so the struts can be carried down to them
+    const skids = []; for (const o of meshes) if (/^Skid[ _](Left|Right)$/.test(o.name)) { const b = o.geometry.clone().applyMatrix4(o.matrixWorld); b.computeBoundingBox(); skids.push(b.boundingBox); }
+    const extendLeg = (o, g) => {   // the strut is a cylinder along its local y; shear it so its lower end lands inside the nearest skid
+      if (!/^Leg[ _]/.test(o.name) || !skids.length) return; const lb = o.geometry.boundingBox || (o.geometry.computeBoundingBox(), o.geometry.boundingBox);
+      let A = new THREE.Vector3(0, lb.max.y, 0).applyMatrix4(o.matrixWorld), B = new THREE.Vector3(0, lb.min.y, 0).applyMatrix4(o.matrixWorld); if (B.y > A.y) [A, B] = [B, A];
+      const skid = skids.reduce((best, b) => { const c = b.getCenter(new THREE.Vector3()); const d = Math.abs(c.x - B.x); return d < best.d ? { d, b, c } : best; }, { d: Infinity }); if (!skid.b) return;
+      const r = (skid.b.max.y - skid.b.min.y) / 2, Bn = new THREE.Vector3(skid.c.x, skid.c.y + r * 0.5, B.z);   // land a little above the tube's axis, inside it
+      const u = B.clone().sub(A), L = u.length(); if (L < 1e-6) return; u.divideScalar(L); const shift = Bn.sub(B);
+      const p = g.attributes.position, v = new THREE.Vector3();
+      for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i); const t = v.clone().sub(A).dot(u) / L; v.addScaledVector(shift, t); p.setXYZ(i, v.x, v.y, v.z); }
+      p.needsUpdate = true; g.computeVertexNormals(); g.computeBoundingBox();
+    };
     let tris = 0;
     for (const o of meshes) {
-      const g = o.geometry.clone(); g.applyMatrix4(o.matrixWorld); if (!g.attributes.normal) g.computeVertexNormals(); g.computeBoundingBox(); all.union(g.boundingBox);
+      const g = o.geometry.clone(); g.applyMatrix4(o.matrixWorld); extendLeg(o, g); if (!g.attributes.normal) g.computeVertexNormals(); g.computeBoundingBox(); all.union(g.boundingBox);
       const info = partOf(o.name), isFocus = !!(info && info.pos === key);
       const mine = isFocus && /^Motor/.test(info.part);
       if (mine) { motorBox.union(g.boundingBox); const hh = g.boundingBox.max.y - g.boundingBox.min.y; if (info.part !== 'Motor Shaft' && hh > coilH) { coilH = hh; coilBox = g.boundingBox.clone(); } }
@@ -191,6 +208,13 @@
     const motorH = Math.max(1e-3, motorBox.max.y - motorBox.min.y);
     const armDir = new THREE.Vector3(); (armBox.isEmpty() ? all : armBox).getCenter(armDir); armDir.sub(target); armDir.y = 0; if (armDir.lengthSq() < 1e-9) armDir.set(1, 0, 0); armDir.normalize();
     const azimuth = () => CONFIG.azimuth === 'auto' || CONFIG.azimuth === undefined ? Math.atan2(armDir.x, armDir.z) / D2R - 90 + (+CONFIG.turn || 0) : +CONFIG.azimuth;
+    const azimuth0 = () => CONFIG.startAzimuth === 'auto' || CONFIG.startAzimuth === undefined ? azimuth() : +CONFIG.startAzimuth;
+    // the opening distance: the drone's box, seen from the start heading, fitted to the frame with the margin
+    const fitDistance = (azDeg, elDeg, fov, a) => { const az = azDeg * D2R, el = elDeg * D2R; const dir = new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
+      const cam = new THREE.PerspectiveCamera(fov / D2R, a, 0.01, 1000); cam.position.copy(droneC).add(dir); cam.lookAt(droneC); cam.updateMatrixWorld(); const inv = cam.matrixWorldInverse;
+      let need = 0; for (const x of [all.min.x, all.max.x]) for (const y of [all.min.y, all.max.y]) for (const z of [all.min.z, all.max.z]) { const q = new THREE.Vector3(x, y, z).applyMatrix4(inv); const depth = -q.z;   // camera space: the point's offset from the target's depth
+        need = Math.max(need, Math.abs(q.y) / Math.tan(fov / 2) + depth, Math.abs(q.x) / (Math.tan(fov / 2) * a) + depth); }   // the distance at which this corner just fits
+      return need; };
     const droneC = new THREE.Vector3(); all.getCenter(droneC); const droneR = all.getSize(new THREE.Vector3()).length() / 2;
     // ---- the floor grid, fading by each point's distance from the motor on screen
     let grid = null;
@@ -214,10 +238,10 @@
     const readProgress = () => { if (!trackEl) return 1; const r = trackEl.getBoundingClientRect(), run = Math.max(1, r.height - h); return Math.min(1, Math.max(0, -r.top / run)); };
     function placeCam(e) {
       const fov = (+CONFIG.fov || 30) * D2R, a = w / h, hfov = 2 * Math.atan(Math.tan(fov / 2) * a);
-      const d0 = droneR * (+CONFIG.margin || 1.12) / Math.sin(Math.min(fov, hfov) / 2);
+      const d0 = fitDistance(azimuth0(), +CONFIG.startElevation || 0, fov, a) * (+CONFIG.margin || 1.25);
       const d1 = motorH / (2 * Math.tan(fov / 2) * Math.max(0.05, +CONFIG.zoom || 0.36));
       const dist = Math.exp(Math.log(d0) + (Math.log(d1) - Math.log(d0)) * e);
-      const az = (azimuth() + (+CONFIG.sweep || 0) * (1 - e)) * D2R, el = ((+CONFIG.startElevation || 0) + ((+CONFIG.elevation || 0) - (+CONFIG.startElevation || 0)) * e) * D2R;
+      const az = (azimuth0() + (azimuth() - azimuth0()) * e) * D2R, el = ((+CONFIG.startElevation || 0) + ((+CONFIG.elevation || 0) - (+CONFIG.startElevation || 0)) * e) * D2R;
       camTarget.copy(droneC).lerp(target, e);
       const dir = new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
       camera.position.copy(camTarget).add(dir.multiplyScalar(dist)); camera.lookAt(camTarget);
@@ -272,7 +296,7 @@
     return {
       set(patch) { Object.assign(CONFIG, patch || {}); for (const k of COLOR_KEYS) if (patch && k in patch) { RAW[k] = patch[k]; lastColors = ''; } edgeMat.uniforms.uDepthT.value = +CONFIG.depthEdge || 0.012; edgeMat.uniforms.uNormT.value = +CONFIG.normalEdge || 0.25; if (patch && ('grid' in patch || 'gridFade' in patch)) buildGrid(); applyColors(); onScroll(); frame(); },
       setProgress(p) { progressTarget = progress = Math.min(1, Math.max(0, +p || 0)); placeCam(ease(progress)); shownProgress = progress; },
-      get state() { return { focus: key, azimuth: azimuth(), progress, motorHeight: motorH, triangles: tris, props: props.length }; },
+      get state() { return { focus: key, azimuth: azimuth(), startAzimuth: azimuth0(), progress, motorHeight: motorH, triangles: tris, props: props.length }; },
       destroy() { alive = false; clearInterval(themeWatch); io.disconnect(); removeEventListener('scroll', onScroll); if (ro) ro.disconnect(); else removeEventListener('resize', frame); rt.dispose(); renderer.dispose(); renderer.domElement.remove(); }
     };
   }
@@ -285,5 +309,5 @@
       .then(() => new Promise((res, rej) => new global.THREE.GLTFLoader().load(CONFIG.model || (HERE + 'heavy_lift_drone_model.glb'), res, undefined, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.0.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.1.0' };
 })(typeof window !== 'undefined' ? window : this);

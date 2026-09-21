@@ -348,14 +348,16 @@ and step back flush when the pointer leaves. Pass `mark: { polys, width, height 
 The heavy-lift drone model (`heavy_lift_drone_model.glb`, in this repo) for the hero. It is drawn as
 lines found on screen: a first pass writes each pixel's normal, depth and part, a second draws a
 one-pixel line wherever those jump — silhouettes and creases alike, the same weight everywhere, with
-nothing behind showing through. The focused motor's casing (base, coil, cap, shaft) draws in the
+nothing behind showing through; each mesh carries its own id, so where two parts meet on screen the
+nearer one draws the line, however close their depths. The landing-gear struts, which the model
+stops short, are carried on down to the skids. The focused motor's casing (base, coil, cap, shaft) draws in the
 primary colour with vertical ribs round it; everything else in the secondary. The model's propellers
 are replaced with generated blades (tapered, twisted, a real section), which turn as the page
 scrolls, neighbours counter-rotating. A floor grid fades toward the frame's edges.
 
 The camera is a real one and moves: with `track` set, it dollies along a path over that section's
-scroll, from a high wide shot of the whole aircraft down to beneath the focused motor, looking up at
-it with the rest of the drone above and behind. The target slides from the drone's centre to the
+scroll, from the whole aircraft centred, level and front-on, round and down to beneath the front-left
+motor, looking up at it from its outer side with the rest of the drone above and behind. The target slides from the drone's centre to the
 motor, the distance eases in log space, the heading and height ease between the two ends, and the
 framing point with them, so it reads as one continuous move rather than a zoom. The scroll is
 damped, so a fast flick cannot expose an intermediate frame. Without a track it holds the end view.
@@ -368,15 +370,17 @@ damped, so a fast flick cannot expose an intermediate frame. Without a track it 
   </div>
 </section>
 <script src="https://cdn.jsdelivr.net/gh/volentecreative/hwi-topo@2cf231b/drone-hero.js"></script>
-<script>DroneHero.mount('#drone', { focus: 'FR', track: 'closest:.section_hero' });</script>
+<script>DroneHero.mount('#drone', { track: 'closest:.section_hero' });</script>
 ```
 
-Options: `focus` (FR, FL, BR, BL, or `'FR 2'` for the lower ring of the coaxial pairs); `track` and
-`damping` (0.12); `fov` (30°). The end of the path: `azimuth` (`'auto'` = side-on to the focused arm,
-swung round by `turn`, −28°, out to the motor's outer side; or degrees), `elevation` (−12°, from
-below), `zoom` (the motor's height as a fraction of the frame's, 0.36), `point` and `pointNarrow`
-(where the motor sits in the frame; the narrow one up to `breakpoint`, 991px). The start: `startElevation`
-(24°), `sweep` (40° of heading on the way down), `margin` (0.95 round the whole drone). Also
+Options: `focus` (FL by default; FR, BR, BL, or `'FL 2'` for the lower ring of the coaxial pairs);
+`track` and `damping` (0.12); `fov` (30°). Headings are about the drone: 0 = from the front, positive
+= round to its right, negative = round to its left. The end of the path: `azimuth` (−28°; or
+`'auto'` = side-on to the focused arm, swung round by `turn`), `elevation` (−14°, from below),
+`zoom` (the motor's height as a fraction of the frame's, 0.36), `point` and `pointNarrow` (where the
+motor sits in the frame; the narrow one up to `breakpoint`, 991px). The start: `startAzimuth` (0,
+the front), `startElevation` (8°, a touch above level), `margin` (1.25 round the whole drone, which
+is fitted to the frame from that heading). Also
 `propScroll` (turns per 1000px scrolled, 0.35) and `propSeconds` (idle turn, 0 = still); `props`
 (`'blades'` or `'model'`), `blades`, `bladeChord`, `bladeTwist`; `grid` (cell in motor heights, 0.5)
 and `gridFade` (0.3); `ribs` (24); `lineWidth` (1px), `depthEdge` (0.012) and `normalEdge` (0.25); and
