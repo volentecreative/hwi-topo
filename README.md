@@ -376,7 +376,9 @@ damped, so a fast flick cannot expose an intermediate frame. Without a track it 
 
 Options: `focus` (the motor the path ends on: FL by default; FR, BR, BL, or `'FL 2'` for the lower ring of
 the coaxial pairs);
-`track` and `damping` (0.12); `fov` (30°). Headings are about the drone: 0 = from the front, positive
+`track`, `runEnd` (a selector inside the track for the element whose top reaching the canvas ends the
+path, e.g. the section the drone arrives in, so the canvas can stay pinned across more than one section)
+and `damping` (0.12); `fov` (30°). Headings are about the drone: 0 = from the front, positive
 = round to its right, negative = round to its left. The end of the path: `azimuth` (−28°; or
 `'auto'` = side-on to the focused arm, swung round by `turn`), `elevation` (−14°, from below),
 `zoom` (the motor's height as a fraction of the frame's, 0.36), `point` and `pointNarrow` (where the
