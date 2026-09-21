@@ -13,13 +13,14 @@
  * The model (heavy_lift_drone_model.glb, beside this script) is drawn as lines found on screen: a first pass writes
  * each pixel's normal, depth and part, a second draws a one-pixel line wherever those jump — silhouettes and creases
  * alike, the same weight everywhere, with nothing behind showing through. The landing-gear struts, which the model
- * stops short, are carried on down to the skids. The focused motor's casing (base, coil,
- * cap, shaft) draws in the primary colour, with vertical ribs; everything else in the secondary. The model's
+ * stops short, are carried on down to the skids. The motors' casings (base, coil, cap, shaft) draw in the primary
+ * colour, with vertical ribs; everything else in the secondary. The ribs and the floor grid are drawn as screen-space
+ * quads with their own coverage, so they stay antialiased at any width. The model's
  * propellers are replaced with generated blades that turn as the page scrolls, neighbours counter-rotating. A floor
  * grid fades toward the frame's edges. With `track` set, the camera dollies along a path over that section's scroll:
- * from a high wide shot of the whole aircraft down to beneath the focused motor, looking up at it with the rest of
+ * from the whole aircraft, head-on, round and down to beneath the focused motor, looking up at it with the rest of
  * the drone above and behind. Without a track it holds the end of the path. Colours come from CSS variables:
- *   --drone-primary    the focused motor      (falls back to --topo-label, then #f2f2f0)
+ *   --drone-primary    the motors             (falls back to --topo-label, then #f2f2f0)
  *   --drone-secondary  the rest of the drone  (falls back to --topo-label-secondary, then #9a9a96)
  *   --drone-face       the faces              (falls back to --topo-block, then #222322)
  *   --drone-bg         the canvas             (transparent by default)
@@ -31,7 +32,7 @@
   const DEFAULTS = {
     model: '',                 // URL of the GLB; '' = heavy_lift_drone_model.glb beside this script
     loader: 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js',
-    focus: 'FL',               // which motor: FR, FL, BR, BL, or with ' 2' for the lower ring of the coaxial pairs
+    focus: 'FL',               // which motor the path ends on: FR, FL, BR, BL, or with ' 2' for the lower ring of the coaxial pairs
     track: '',                 // the tall section the canvas is pinned inside ('closest:.section_hero', a selector, or an element); the camera's path runs over its scroll. '' = hold the end view
     damping: 0.12,             // how closely the camera follows the scroll (per frame at 60fps); 1 = instantly
     fov: 30,                   // the camera's vertical field of view, degrees
@@ -46,15 +47,16 @@
     breakpoint: 991,
     // the start of the path: the whole aircraft, centred, level, from the front
     startAzimuth: 0,           // camera heading at the start; 0 = the front view
-    startElevation: 8,         // degrees above the horizon at the start; a little above level, so the floor grid and the blades' faces show
+    startElevation: 0,         // degrees above the horizon at the start; 0 = dead level
     margin: 1.25,              // breathing room round the whole drone at the start (1 = its silhouette touches the frame)
     propScroll: 0.35,          // propeller turns per 1000px of scrolling; 0 = the props do not follow the scroll
     propSeconds: 0,            // seconds per idle turn of every propeller; 0 = still unless scrolled
     props: 'blades',           // 'blades': generated blades in place of the model's; 'model': the model's own
     blades: 2, bladeChord: 0.2, bladeTwist: 22,   // per propeller: blade count, widest chord as a share of the radius, root twist in degrees
     grid: 0.5, gridFade: 0.3,  // the floor grid's cell, in motor heights (0 = none), and how far from the motor it starts fading (share of the frame's half-size; it is gone by the edges)
-    ribs: 24,                  // vertical ribs round the focused motor's casing; 0 = none
-    lineWidth: 1,              // line thickness, in screen pixels
+    gridExtent: 24, gridWidth: 1,   // how far the grid reaches from the drone's centre, in motor heights, and its line width in CSS pixels
+    ribs: 24, ribWidth: 1, ribOpacity: 0.8,   // vertical ribs round each motor's casing (0 = none), their width in CSS pixels and opacity
+    lineWidth: 1,              // the edge lines' thickness, in screen pixels
     depthEdge: 0.012, normalEdge: 0.25,   // how big a jump in depth (relative) or in normal (1 - cos) draws a line
     supersample: 2,            // the edge pass runs at this many times the canvas resolution and averages, so the lines are antialiased
     pixelBudget: 8e6,          // the most pixels the edge pass holds at once; a frame that needs more is rendered in tiles, so the quality never drops
@@ -114,15 +116,15 @@
     float edgeAt(vec2 uv, out vec3 col){
       vec2 px = uWidth / uRes; vec4 c = texture2D(tN, uv); float d = lin(texture2D(tD, uv).x); vec3 n = c.xyz * 2.0 - 1.0;
       col = c.a > 0.75 ? uC1 : uC2;
-      if (c.a < 0.01) return 0.0;                                // background: lines are drawn from the object's side
+      if (c.a < 0.002) return 0.0;                               // background (ids start at 1/255): lines are drawn from the object's side
       float e = 0.0;
       for (int i = 0; i < 2; i++) {                              // each axis: the two neighbours either side
         vec2 o = i == 0 ? vec2(px.x, 0.0) : vec2(0.0, px.y);
         vec4 c1 = texture2D(tN, uv + o), c2 = texture2D(tN, uv - o); float d1 = lin(texture2D(tD, uv + o).x), d2 = lin(texture2D(tD, uv - o).x);
         bool own1 = abs(c1.a - c.a) < 0.002, own2 = abs(c2.a - c.a) < 0.002;   // the neighbour is on this same part
         // another part, or the background: the boundary is a line, owned by whichever side is nearer
-        if (!own1 && (c1.a < 0.01 || d < d1)) e = 1.0;
-        if (!own2 && (c2.a < 0.01 || d < d2)) e = 1.0;
+        if (!own1 && (c1.a < 0.002 || d < d1)) e = 1.0;
+        if (!own2 && (c2.a < 0.002 || d < d2)) e = 1.0;
         // this part over itself: a surface seen at a grazing angle changes depth steadily, a silhouette breaks it —
         // so test the second difference, and let the nearer side of the break own the line
         if (own1 && own2) { float bend = abs(d1 + d2 - 2.0 * d) / d;
@@ -147,6 +149,34 @@
       gl_FragColor = vec4(rgb, a) * 0.25;
     }`;
 
+  // drawn lines (the ribs and the grid): each segment is a quad the vertex shader expands on screen to the line's width
+  // plus a pixel of feather, and the fragment fades by its distance from the centreline — antialiased at any width,
+  // which GL lines are not. A segment crossing the near plane is clipped to it first. The grid fades by each end's
+  // distance from the focus on screen.
+  const LINE_VERT = `
+    uniform vec2 uRes, uFocus; uniform float uHalf, uNear, uFade0, uFadeOn;
+    attribute vec3 pointA, pointB; attribute vec2 corner; varying vec2 vD; varying float vLen, vF;
+    void main(){
+      vec4 va = modelViewMatrix * vec4(pointA, 1.0), vb = modelViewMatrix * vec4(pointB, 1.0); float nz = -uNear * 1.001;
+      if (va.z > nz && vb.z > nz) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); vD = vec2(0.0); vLen = 0.0; vF = 1.0; return; }
+      if (va.z > nz) va = mix(va, vb, (nz - va.z) / (vb.z - va.z)); else if (vb.z > nz) vb = mix(vb, va, (nz - vb.z) / (va.z - vb.z));
+      vec4 ca = projectionMatrix * va, cb = projectionMatrix * vb;
+      vec2 sa = ca.xy / ca.w * uRes * 0.5, sb = cb.xy / cb.w * uRes * 0.5;
+      vec2 d = sb - sa; float len = max(length(d), 1e-4); d /= len; vec2 n = vec2(-d.y, d.x);
+      bool B = corner.x > 0.5; vec4 c = B ? cb : ca; vec2 s = (B ? sb : sa) + (B ? d : -d) * uHalf + n * corner.y * uHalf;
+      vD = vec2(corner.y * uHalf, B ? len + uHalf : -uHalf); vLen = len;
+      float r = distance(c.xy / c.w, uFocus); vF = uFadeOn * clamp((r - uFade0) / (1.0 - uFade0), 0.0, 1.0);
+      gl_Position = vec4(s / (uRes * 0.5) * c.w, c.z, c.w);
+    }`;
+  const LINE_FRAG = `
+    uniform vec3 uColor, uBg; uniform float uWidth, uOpacity, uFadeOn; varying vec2 vD; varying float vLen, vF;
+    void main(){
+      float w = uWidth * 0.5;
+      float a = (1.0 - smoothstep(w - 0.5, w + 0.5, abs(vD.x))) * (1.0 - smoothstep(w - 0.5, w + 0.5, -vD.y)) * (1.0 - smoothstep(w - 0.5, w + 0.5, vD.y - vLen));
+      if (a < 0.003) discard;
+      gl_FragColor = vec4(mix(uColor, uBg, uFadeOn * (0.55 + 0.45 * vF)), a * uOpacity);
+    }`;
+
   function build(host, CONFIG, gltf) {
     const THREE = global.THREE, D2R = Math.PI / 180;
     const RAW = {}; for (const k of COLOR_KEYS) { RAW[k] = CONFIG[k]; CONFIG[k] = resolveColor(host, CONFIG[k]); }
@@ -158,7 +188,14 @@
     host.appendChild(renderer.domElement);
     const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(+CONFIG.fov || 30, 1, 0.05, 200);
     const faceMat = new THREE.MeshBasicMaterial({ color: CONFIG.face, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
-    const lineMat1 = new THREE.LineBasicMaterial({ color: CONFIG.primary });
+    const lineMaterial = (color, fade, opacity) => new THREE.ShaderMaterial({ vertexShader: LINE_VERT, fragmentShader: LINE_FRAG, transparent: true, depthWrite: false, side: THREE.DoubleSide,
+      uniforms: { uRes: { value: new THREE.Vector2(1, 1) }, uFocus: { value: new THREE.Vector2() }, uHalf: { value: 1 }, uWidth: { value: 1 }, uNear: { value: 0.05 }, uFade0: { value: 0.3 }, uFadeOn: { value: fade ? 1 : 0 }, uColor: { value: new THREE.Color(color) }, uBg: { value: new THREE.Color(CONFIG.face) }, uOpacity: { value: opacity } } });
+    const ribMat = lineMaterial(CONFIG.primary, false, +CONFIG.ribOpacity), gridMat = lineMaterial(CONFIG.secondary, true, 1), lineMats = [ribMat, gridMat];
+    const lineMesh = (segs, mat) => {   // segs: ax ay az bx by bz per segment; four corners each (A-, A+, B-, B+)
+      const n = segs.length / 6, A = new Float32Array(n * 12), B = new Float32Array(n * 12), C = new Float32Array(n * 8), idx = [];
+      for (let i = 0; i < n; i++) { for (let k = 0; k < 4; k++) { const v = i * 4 + k; for (let j = 0; j < 3; j++) { A[v * 3 + j] = segs[i * 6 + j]; B[v * 3 + j] = segs[i * 6 + 3 + j]; } C[v * 2] = k >> 1; C[v * 2 + 1] = (k & 1) ? 1 : -1; } const b = i * 4; idx.push(b, b + 1, b + 2, b + 1, b + 3, b + 2); }
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(A, 3)); g.setAttribute('pointA', new THREE.BufferAttribute(A, 3)); g.setAttribute('pointB', new THREE.BufferAttribute(B, 3)); g.setAttribute('corner', new THREE.BufferAttribute(C, 2)); g.setIndex(idx);
+      const m = new THREE.Mesh(g, mat); m.frustumCulled = false; m.userData.isLines = true; return m; };
     const solids = []; let ids = [0, 255];   // part ids: the rest count up from 1, the focused motor's casing down from 255 (the edge pass colours ids above 191 primary)
     const solid = (g, mine) => { const m = new THREE.Mesh(g, faceMat); const id = mine ? ids[1]-- : ++ids[0];
       m.userData.idMat = new THREE.ShaderMaterial({ vertexShader: ID_VERT, fragmentShader: ID_FRAG, uniforms: { uId: { value: id / 255 } } }); solids.push(m); scene.add(m); return m; };
@@ -178,7 +215,7 @@
     const partOf = name => { const m = /^(Motor[ _]Base|Motor[ _]Coil|Motor[ _]Cap|Motor[ _]Shaft|Prop[ _]Hub|Propeller|Arm)[ _](FR|FL|BR|BL)(?:[ _](2))?$/.exec(name || ''); return m ? { part: m[1].replace('_', ' '), pos: m[2] + (m[3] ? ' 2' : '') } : null; };
     const skip = name => /^mesh_\d+_instance/.test(name || '');
     gltf.scene.updateMatrixWorld(true);
-    const motorBox = new THREE.Box3(), armBox = new THREE.Box3(), all = new THREE.Box3(); let coilBox = new THREE.Box3(), coilH = 0;
+    const motorBox = new THREE.Box3(), armBox = new THREE.Box3(), all = new THREE.Box3(); const coils = {};   // per motor: its tallest casing part's box, for the ribs
     const hubs = {}, propInfo = {};
     const meshes = []; gltf.scene.traverse(o => { if (o.isMesh && !skip(o.name)) meshes.push(o); });
     // the skids (the long tubes), so the struts can be carried down to them
@@ -191,14 +228,14 @@
       const u = B.clone().sub(A), L = u.length(); if (L < 1e-6) return; u.divideScalar(L); const shift = Bn.sub(B);
       const p = g.attributes.position, v = new THREE.Vector3();
       for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i); const t = v.clone().sub(A).dot(u) / L; v.addScaledVector(shift, t); p.setXYZ(i, v.x, v.y, v.z); }
-      p.needsUpdate = true; g.computeVertexNormals(); g.computeBoundingBox();
+      p.needsUpdate = true; g.computeVertexNormals(); g.computeBoundingBox(); g.computeBoundingSphere();   // the sphere too: the tiled pass culls by it
     };
     let tris = 0;
     for (const o of meshes) {
       const g = o.geometry.clone(); g.applyMatrix4(o.matrixWorld); extendLeg(o, g); if (!g.attributes.normal) g.computeVertexNormals(); g.computeBoundingBox(); all.union(g.boundingBox);
       const info = partOf(o.name), isFocus = !!(info && info.pos === key);
-      const mine = isFocus && /^Motor/.test(info.part);
-      if (mine) { motorBox.union(g.boundingBox); const hh = g.boundingBox.max.y - g.boundingBox.min.y; if (info.part !== 'Motor Shaft' && hh > coilH) { coilH = hh; coilBox = g.boundingBox.clone(); } }
+      const mine = !!(info && /^Motor/.test(info.part));
+      if (mine) { if (isFocus) motorBox.union(g.boundingBox); const hh = g.boundingBox.max.y - g.boundingBox.min.y; if (info.part !== 'Motor Shaft' && !(coils[info.pos] && coils[info.pos].h >= hh)) coils[info.pos] = { h: hh, box: g.boundingBox.clone() }; }
       if (isFocus && info.part === 'Arm') armBox.union(g.boundingBox);
       if (info && info.part === 'Prop Hub') hubs[info.pos] = g.boundingBox.clone();
       if (info && info.part === 'Propeller') { propInfo[info.pos] = g.boundingBox.clone(); if (CONFIG.props !== 'model') continue; }
@@ -214,11 +251,11 @@
       const ring = / 2$/.test(pos) ? 1 : 0, quad = /^(FR|BL)/.test(pos) ? 1 : -1;
       props.push({ mesh: m, dir: quad * (ring ? -1 : 1), phase: Math.random() * Math.PI * 2 });
     }
-    // the focused motor's ribbing: vertical lines round the tallest casing part, just off its surface
-    if (CONFIG.ribs > 0 && !coilBox.isEmpty()) {
-      const c = new THREE.Vector3(); coilBox.getCenter(c); const r = Math.max(coilBox.max.x - coilBox.min.x, coilBox.max.z - coilBox.min.z) / 2 * 1.004, a = [];
-      for (let k = 0; k < CONFIG.ribs; k++) { const t = (k + 0.5) / CONFIG.ribs * Math.PI * 2, x = c.x + Math.cos(t) * r, z = c.z + Math.sin(t) * r; a.push(x, coilBox.min.y, z, x, coilBox.max.y, z); }
-      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(a, 3)); scene.add(new THREE.LineSegments(g, lineMat1));
+    // the motors' ribbing: vertical lines round each one's tallest casing part, just off its surface
+    if (CONFIG.ribs > 0) { const a = [];
+      for (const pos of Object.keys(coils)) { const cb = coils[pos].box, c = new THREE.Vector3(); cb.getCenter(c); const r = Math.max(cb.max.x - cb.min.x, cb.max.z - cb.min.z) / 2 * 1.004;
+        for (let k = 0; k < CONFIG.ribs; k++) { const t = (k + 0.5) / CONFIG.ribs * Math.PI * 2, x = c.x + Math.cos(t) * r, z = c.z + Math.sin(t) * r; a.push(x, cb.min.y, z, x, cb.max.y, z); } }
+      if (a.length) scene.add(lineMesh(a, ribMat));
     }
     // ---- the two ends of the path
     const target = new THREE.Vector3(); motorBox.getCenter(target);
@@ -233,20 +270,17 @@
         need = Math.max(need, Math.abs(q.y) / Math.tan(fov / 2) + depth, Math.abs(q.x) / (Math.tan(fov / 2) * a) + depth); }   // the distance at which this corner just fits
       return need; };
     const droneC = new THREE.Vector3(); all.getCenter(droneC); const droneR = all.getSize(new THREE.Vector3()).length() / 2;
-    // ---- the floor grid, fading by each point's distance from the motor on screen
+    // ---- the floor grid: centred under the drone, one segment per cell edge so its fade (by each point's distance
+    // from the focus on screen, in the shader) follows the frame
     let grid = null;
     function buildGrid() {
       if (grid) { scene.remove(grid); grid.geometry.dispose(); grid = null; } const cell = motorH * (+CONFIG.grid || 0); if (!(cell > 0)) return;
-      const y = all.min.y, n = Math.ceil(motorH * 12 / cell), pos = [];
-      for (let i = -n; i <= n; i++) { const o = i * cell; for (let j = -n; j < n; j++) { const a = j * cell, b = (j + 1) * cell; pos.push(target.x + o, y, target.z + a, target.x + o, y, target.z + b, target.x + a, y, target.z + o, target.x + b, y, target.z + o); } }
-      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(pos.length), 3));
-      grid = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true })); scene.add(grid); fadeGrid();
+      const y = all.min.y, n = Math.ceil(motorH * (+CONFIG.gridExtent || 24) / cell), pos = [], cx = droneC.x, cz = droneC.z;
+      for (let i = -n; i <= n; i++) { const o = i * cell; for (let j = -n; j < n; j++) { const a = j * cell, b = (j + 1) * cell; pos.push(cx + o, y, cz + a, cx + o, y, cz + b, cx + a, y, cz + o, cx + b, y, cz + o); } }
+      grid = lineMesh(pos, gridMat); scene.add(grid); fadeGrid();
     }
-    function fadeGrid() {
-      if (!grid) return; const p = grid.geometry.attributes.position.array, c = grid.geometry.attributes.color.array, v = new THREE.Vector3();
-      const lineC = new THREE.Color(CONFIG.secondary), bgC = new THREE.Color(CONFIG.face), t = new THREE.Vector3().copy(camTarget).project(camera), f0 = Math.max(0, Math.min(0.95, +CONFIG.gridFade || 0.3));
-      for (let i = 0; i < p.length; i += 3) { v.set(p[i], p[i + 1], p[i + 2]).project(camera); const r = Math.hypot(v.x - t.x, v.y - t.y), f = Math.min(1, Math.max(0, (r - f0) / (1 - f0))); const col = lineC.clone().lerp(bgC, 0.55 + 0.45 * f); c[i] = col.r; c[i + 1] = col.g; c[i + 2] = col.b; }
-      grid.geometry.attributes.color.needsUpdate = true;
+    function fadeGrid() {   // where the focus sits on screen, and how far out the fade starts
+      const t = new THREE.Vector3().copy(camTarget).project(camera); gridMat.uniforms.uFocus.value.set(t.x, t.y); gridMat.uniforms.uFade0.value = Math.max(0, Math.min(0.95, +CONFIG.gridFade || 0.3));
     }
     // ---- the path: spherical about a target that slides from the drone's centre to the motor, distance in log
     // space, heading and height easing between the two ends, the framing point too — one camera, really moving
@@ -262,7 +296,7 @@
       camTarget.copy(droneC).lerp(target, e);
       const dir = new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
       camera.position.copy(camTarget).add(dir.multiplyScalar(dist)); camera.lookAt(camTarget);
-      camera.near = Math.max(0.02, dist * 0.05); camera.far = dist + droneR * 4; edgeMat.uniforms.uNear.value = camera.near; edgeMat.uniforms.uFar.value = camera.far;
+      camera.near = Math.max(0.02, dist * 0.05); camera.far = dist + droneR * 4; edgeMat.uniforms.uNear.value = camera.near; edgeMat.uniforms.uFar.value = camera.far; for (const m of lineMats) m.uniforms.uNear.value = camera.near;
       const narrow = global.matchMedia && global.matchMedia('(max-width: ' + (+CONFIG.breakpoint || 991) + 'px)').matches;
       const pe = (narrow && CONFIG.pointNarrow) || CONFIG.point || { x: 0.5, y: 0.5 }, px = 0.5 + (pe.x - 0.5) * e, py = 0.5 + (pe.y - 0.5) * e;
       camera.setViewOffset(w, h, (0.5 - px) * w, (0.5 - py) * h, w, h); camera.updateProjectionMatrix(); camera.updateMatrixWorld();
@@ -278,13 +312,15 @@
       T.w = Math.ceil(W / T.nx); T.h = Math.ceil(H / T.ny); T.g = 3; T.PR = PR; T.S = S; T.W = W; T.H = H;
       const rw = Math.round((T.w + 2 * T.g) * S), rh = Math.round((T.h + 2 * T.g) * S); rt.setSize(rw, rh); edgeMat.uniforms.uRes.value.set(rw, rh);
       edgeMat.uniforms.uWidth.value = Math.max(0.5, (+CONFIG.lineWidth || 1) * S * PR / 1.5);
+      ribMat.uniforms.uWidth.value = Math.max(0.3, (+CONFIG.ribWidth || 1) * PR); gridMat.uniforms.uWidth.value = Math.max(0.3, (+CONFIG.gridWidth || 1) * PR); ribMat.uniforms.uOpacity.value = +CONFIG.ribOpacity;
+      for (const m of lineMats) { m.uniforms.uRes.value.set(W, H); m.uniforms.uHalf.value = m.uniforms.uWidth.value / 2 + 1; }
       if (!trackEl) progress = progressTarget = 1; placeCam(ease(progress)); shownProgress = progress;
     }
     function render() {
       renderer.setRenderTarget(null); renderer.clear(); renderer.render(scene, camera);   // the faces (occluders), ribs and grid, multisampled
       const v = camera.view, fw = v.fullWidth, fh = v.fullHeight, ox = v.offsetX, oy = v.offsetY, vw = v.width, vh = v.height;   // the framing
       for (const m of solids) { m.userData.faceMat = m.material; m.material = m.userData.idMat; }
-      const lines = []; scene.traverse(o => { if (o.isLine || o.isLineSegments) { lines.push(o); o.visible = false; } });
+      const lines = []; scene.traverse(o => { if (o.userData.isLines) { lines.push(o); o.visible = false; } });
       const { nx, ny, w: tw, h: th, g, PR, W, H } = T;
       for (let ty = 0; ty < ny; ty++) for (let tx = 0; tx < nx; tx++) {
         const x0 = tx * tw, y0 = ty * th;   // the tile, in canvas pixels from the top left
@@ -322,14 +358,14 @@
     function applyColors() {
       const next = {}; for (const k of COLOR_KEYS) next[k] = resolveColor(host, RAW[k]);
       const sig = JSON.stringify(next); if (sig === lastColors) return; lastColors = sig; Object.assign(CONFIG, next);
-      host.style.background = CONFIG.background; faceMat.color.set(CONFIG.face); lineMat1.color.set(CONFIG.primary); edgeMat.uniforms.uC1.value.set(CONFIG.primary); edgeMat.uniforms.uC2.value.set(CONFIG.secondary); buildGrid(); dirty = true;
+      host.style.background = CONFIG.background; faceMat.color.set(CONFIG.face); ribMat.uniforms.uColor.value.set(CONFIG.primary); gridMat.uniforms.uColor.value.set(CONFIG.secondary); for (const m of lineMats) m.uniforms.uBg.value.set(CONFIG.face); edgeMat.uniforms.uC1.value.set(CONFIG.primary); edgeMat.uniforms.uC2.value.set(CONFIG.secondary); if (!grid) buildGrid(); dirty = true;
     }
     applyColors();
     const themeWatch = setInterval(() => { if (alive) applyColors(); }, 400);
     const ro = global.ResizeObserver ? new ResizeObserver(frame) : null; if (ro) ro.observe(host); else addEventListener('resize', frame);
     frame();
     return {
-      set(patch) { Object.assign(CONFIG, patch || {}); for (const k of COLOR_KEYS) if (patch && k in patch) { RAW[k] = patch[k]; lastColors = ''; } edgeMat.uniforms.uDepthT.value = +CONFIG.depthEdge || 0.012; edgeMat.uniforms.uNormT.value = +CONFIG.normalEdge || 0.25; if (patch && ('grid' in patch || 'gridFade' in patch)) buildGrid(); applyColors(); onScroll(); frame(); },
+      set(patch) { Object.assign(CONFIG, patch || {}); for (const k of COLOR_KEYS) if (patch && k in patch) { RAW[k] = patch[k]; lastColors = ''; } edgeMat.uniforms.uDepthT.value = +CONFIG.depthEdge || 0.012; edgeMat.uniforms.uNormT.value = +CONFIG.normalEdge || 0.25; if (patch && ('grid' in patch || 'gridExtent' in patch)) buildGrid(); applyColors(); onScroll(); frame(); },
       setProgress(p) { progressTarget = progress = Math.min(1, Math.max(0, +p || 0)); placeCam(ease(progress)); shownProgress = progress; },
       get state() { return { focus: key, azimuth: azimuth(), startAzimuth: azimuth0(), progress, motorHeight: motorH, triangles: tris, props: props.length, pixelRatio: renderer.getPixelRatio(), edgePass: [rt.width, rt.height], tiles: T.nx * T.ny }; },
       destroy() { alive = false; clearInterval(themeWatch); io.disconnect(); removeEventListener('scroll', onScroll); if (ro) ro.disconnect(); else removeEventListener('resize', frame); rt.dispose(); renderer.dispose(); renderer.domElement.remove(); }
@@ -344,5 +380,5 @@
       .then(() => new Promise((res, rej) => new global.THREE.GLTFLoader().load(CONFIG.model || (HERE + 'heavy_lift_drone_model.glb'), res, undefined, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.3.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.4.0' };
 })(typeof window !== 'undefined' ? window : this);

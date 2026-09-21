@@ -350,13 +350,14 @@ lines found on screen: a first pass writes each pixel's normal, depth and part, 
 one-pixel line wherever those jump — silhouettes and creases alike, the same weight everywhere, with
 nothing behind showing through; each mesh carries its own id, so where two parts meet on screen the
 nearer one draws the line, however close their depths. The landing-gear struts, which the model
-stops short, are carried on down to the skids. The focused motor's casing (base, coil, cap, shaft) draws in the
-primary colour with vertical ribs round it; everything else in the secondary. The model's propellers
+stops short, are carried on down to the skids. The motors' casings (base, coil, cap, shaft) draw in the
+primary colour with vertical ribs round them; everything else in the secondary. The ribs and the floor
+grid are drawn as screen-space quads with their own coverage, so they stay antialiased at any width. The model's propellers
 are replaced with generated blades (tapered, twisted, a real section), which turn as the page
 scrolls, neighbours counter-rotating. A floor grid fades toward the frame's edges.
 
 The camera is a real one and moves: with `track` set, it dollies along a path over that section's
-scroll, from the whole aircraft centred, level and front-on, round and down to beneath the front-left
+scroll, from the whole aircraft centred, dead level and head-on, round and down to beneath the front-left
 motor, looking up at it from its outer side with the rest of the drone above and behind. The target slides from the drone's centre to the
 motor, the distance eases in log space, the heading and height ease between the two ends, and the
 framing point with them, so it reads as one continuous move rather than a zoom. The scroll is
@@ -373,17 +374,20 @@ damped, so a fast flick cannot expose an intermediate frame. Without a track it 
 <script>DroneHero.mount('#drone', { track: 'closest:.section_hero' });</script>
 ```
 
-Options: `focus` (FL by default; FR, BR, BL, or `'FL 2'` for the lower ring of the coaxial pairs);
+Options: `focus` (the motor the path ends on: FL by default; FR, BR, BL, or `'FL 2'` for the lower ring of
+the coaxial pairs);
 `track` and `damping` (0.12); `fov` (30°). Headings are about the drone: 0 = from the front, positive
 = round to its right, negative = round to its left. The end of the path: `azimuth` (−28°; or
 `'auto'` = side-on to the focused arm, swung round by `turn`), `elevation` (−14°, from below),
 `zoom` (the motor's height as a fraction of the frame's, 0.36), `point` and `pointNarrow` (where the
 motor sits in the frame; the narrow one up to `breakpoint`, 991px). The start: `startAzimuth` (0,
-the front), `startElevation` (8°, a touch above level), `margin` (1.25 round the whole drone, which
+the front), `startElevation` (0°, level), `margin` (1.25 round the whole drone, which
 is fitted to the frame from that heading). Also
 `propScroll` (turns per 1000px scrolled, 0.35) and `propSeconds` (idle turn, 0 = still); `props`
 (`'blades'` or `'model'`), `blades`, `bladeChord`, `bladeTwist`; `grid` (cell in motor heights, 0.5)
-and `gridFade` (0.3); `ribs` (24); `lineWidth` (1px), `depthEdge` (0.012) and `normalEdge` (0.25);
+and `gridFade` (0.3), `gridExtent` (24 motor heights from the drone's centre) and `gridWidth` (1px); `ribs`
+(24 per motor), `ribWidth` (1px) and `ribOpacity` (0.8); `lineWidth` (1px), `depthEdge` (0.012) and
+`normalEdge` (0.25);
 `supersample` (2: the edge pass runs at twice the canvas resolution and averages, so the lines are
 antialiased; the faces, ribs and grid are multisampled), `pixelBudget` (8 million pixels: the most the
 edge pass holds at once; a bigger frame is rendered in tiles, so the quality never drops) and

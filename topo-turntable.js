@@ -208,7 +208,7 @@
     // makes mobile Safari struggle, not the geometry. A standard depth buffer throughout: the logarithmic one writes
     // gl_FragDepth, which disables early-Z and hidden-surface removal on tile-based (Apple, Mali) GPUs. The near plane
     // tracks the camera distance (setFrustum), so 24 bits are enough from orbit down to the county.
-    const coarse=!!(global.matchMedia && global.matchMedia('(pointer: coarse)').matches), PR_CAP=coarse?1.25:1.5;
+    const coarse=!!(global.matchMedia && global.matchMedia('(pointer: coarse)').matches), PR_CAP=coarse?1.25:2;
     const renderer=new THREE.WebGLRenderer({antialias:!coarse, alpha:true}); renderer.setPixelRatio(Math.min(devicePixelRatio||1,PR_CAP)); renderer.setClearColor(0x000000,0); host.prepend(renderer.domElement);
     const scene=new THREE.Scene(); const camera=new THREE.PerspectiveCamera(CONFIG.lens,1,10,1e9);
     const group=new THREE.Group(); scene.add(group);
