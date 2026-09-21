@@ -83,6 +83,8 @@
     "stage": null,
     "focus": null,
     "focusFrom": null,
+    "focusStart": 0.1,
+    "focusEnd": 0.75,
     "focusNarrow": null,
     "focusNarrowFrom": null,
     "tiltStart": 0.35,
@@ -431,7 +433,9 @@
     // the stage breakpoint. Fractions, so it is responsive by construction.
     const isNarrow=()=>!!(global.matchMedia && global.matchMedia('(max-width: '+(+(CONFIG.stage&&CONFIG.stage.breakpoint)||991)+'px)').matches);
     const focusAt=(t)=>{ const C=CONFIG, S=C.stage||{}, n=isNarrow(); const to=(n?(C.focusNarrow||C.focus):C.focus)||{x:0.5,y:0.5}, from=(n?(C.focusNarrowFrom||C.focusFrom):C.focusFrom)||{x:0.5,y:0.5};
-      const s0=+S.start||0.45, s1=Math.max(s0+0.01,+S.end||0.7), e=(AP&&!reduced)?smooth(s0,s1,t):1; return { x:(+from.x)+((+to.x)-(+from.x))*e, y:(+from.y)+((+to.y)-(+from.y))*e }; };
+      // the move to the resting point is spread over most of the descent, so it reads as the camera aiming where it
+      // is going rather than a late slide: on by focusStart, settled by focusEnd, the push-in carrying on after
+      const s0=C.focusStart==null?0.1:+C.focusStart, s1=Math.max(s0+0.01,C.focusEnd==null?0.75:+C.focusEnd), e=(AP&&!reduced)?smooth(s0,s1,t):1; return { x:(+from.x)+((+to.x)-(+from.x))*e, y:(+from.y)+((+to.y)-(+from.y))*e }; };
     let focusKey='';
     function applyFocus(t){ const f=focusAt(t), w=host.clientWidth||1, h=host.clientHeight||1; const key=[f.x.toFixed(4),f.y.toFixed(4),w,h].join('|'); if(key===focusKey) return; focusKey=key;
       if(Math.abs(f.x-0.5)<1e-4 && Math.abs(f.y-0.5)<1e-4){ if(camera.view) camera.clearViewOffset(); } else camera.setViewOffset(w,h,(0.5-f.x)*w,(0.5-f.y)*h,w,h); }

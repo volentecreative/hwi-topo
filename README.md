@@ -99,6 +99,8 @@ to the value shown here.
     focusFrom: null,            // where it starts (the centre by default); it moves to focus over stage.start → stage.end
     focusNarrow: null,          // the same two, for screens up to stage.breakpoint (991 px), e.g. { x: 0.5, y: 0.32 }
     focusNarrowFrom: null,
+    focusStart: 0.1,            // the move from focusFrom to focus runs over this window of the descent …
+    focusEnd:   0.75,           // … and is settled by here, so it reads as aiming rather than a late slide
     tiltStart:       0.35,      // progress over which the tilt comes on …
     tiltEnd:         0.72,      // … and is done
     lensStart:       0,         // progress over which the lens narrows from approachLens to lens …
@@ -341,33 +343,44 @@ a badge and extruded back (`depth`, 0.22 of its width). On hover the bands step 
 another, outer band first (`stagger`, 0.55), the innermost standing `rise` (0.5 of the width) proud,
 and step back flush when the pointer leaves. Pass `mark: { polys, width, height }` for another mark.
 
-## drone-hero.js: the drone, framed on a motor
+## drone-hero.js: the drone, on a scroll-driven camera move onto a motor
 
-The heavy-lift drone model (`heavy_lift_drone_model.glb`, in this repo) drawn the house way for the
-hero: faces in the page colour so near parts hide far ones, creases and silhouettes as lines. The
-focused motor's casing (base, coil, cap, shaft) is drawn in the primary colour with vertical ribs round
-it; everything else in the secondary. The model's propellers are replaced with generated blades
-(tapered, twisted, a real section), which turn as the page scrolls, neighbours counter-rotating. A
-floor grid fades out toward the frame's edges. An orthographic camera looks at the motor from a
-three-quarter angle off the side of its arm and puts the motor at a chosen point of the frame, so
-the composition holds at any size.
+The heavy-lift drone model (`heavy_lift_drone_model.glb`, in this repo) for the hero. It is drawn as
+lines found on screen: a first pass writes each pixel's normal, depth and part, a second draws a
+one-pixel line wherever those jump — silhouettes and creases alike, the same weight everywhere, with
+nothing behind showing through. The focused motor's casing (base, coil, cap, shaft) draws in the
+primary colour with vertical ribs round it; everything else in the secondary. The model's propellers
+are replaced with generated blades (tapered, twisted, a real section), which turn as the page
+scrolls, neighbours counter-rotating. A floor grid fades toward the frame's edges.
+
+The camera is a real one and moves: with `track` set, it dollies along a path over that section's
+scroll, from a high wide shot of the whole aircraft down to beneath the focused motor, looking up at
+it with the rest of the drone above and behind. The target slides from the drone's centre to the
+motor, the distance eases in log space, the heading and height ease between the two ends, and the
+framing point with them, so it reads as one continuous move rather than a zoom. The scroll is
+damped, so a fast flick cannot expose an intermediate frame. Without a track it holds the end view.
 
 ```html
-<div id="drone" class="hero_drone"></div>
-<script src="https://cdn.jsdelivr.net/gh/volentecreative/hwi-topo@7a14d59/drone-hero.js"></script>
-<script>DroneHero.mount('#drone', { focus: 'FR' });</script>
+<section class="section_hero">                  <!-- ~200svh tall: the track -->
+  <div class="hero_sticky">                     <!-- sticky, one viewport tall -->
+    <div id="drone" class="hero_drone"></div>   <!-- absolute, inset 0, behind the copy -->
+    …the copy…
+  </div>
+</section>
+<script src="https://cdn.jsdelivr.net/gh/volentecreative/hwi-topo@PIN/drone-hero.js"></script>
+<script>DroneHero.mount('#drone', { focus: 'FR', track: 'closest:.section_hero' });</script>
 ```
 
-Options: `focus` (FR, FL, BR, BL, or `'FR 2'` for the lower ring of the coaxial pairs); `azimuth`
-(`'auto'` = side-on to the focused arm, arm to the right, swung round by `turn`, 22°; or degrees) and
-`elevation` (18°); `zoom` (the motor's height as a fraction of the frame's, 0.38); `point` and
-`pointNarrow` (where the motor sits in the frame, fractions of width and height; the narrow one up to
-`breakpoint`, 991px); `propScroll` (propeller turns per 1000px scrolled, 0.35) and `propSeconds` (an
-idle turn, 0 = still); `props` (`'blades'` generated, or `'model'` for the model's own), `blades` (2),
-`bladeChord` (0.2 of the radius) and `bladeTwist` (22°); `grid` (cell in motor heights, 0.5; 0 = none)
-and `gridFade` (where the fade starts, 0.3 of the frame's half-size); `ribs` (24); `crease` (22°:
-sharper edges are drawn); `lineWidth` (1.1px silhouettes); and the colours `primary`, `secondary`,
-`face`, `background`, from `--drone-primary`, `--drone-secondary`, `--drone-face`, `--drone-bg`
-with the map's `--topo-label`, `--topo-label-secondary` and `--topo-block` as fallbacks. The model
-loads from beside the script (`model` overrides), and the GLTF loader from jsDelivr's copy of three
-r128 (`loader` overrides).
+Options: `focus` (FR, FL, BR, BL, or `'FR 2'` for the lower ring of the coaxial pairs); `track` and
+`damping` (0.12); `fov` (30°). The end of the path: `azimuth` (`'auto'` = side-on to the focused arm,
+swung round by `turn`, −28°, out to the motor's outer side; or degrees), `elevation` (−12°, from
+below), `zoom` (the motor's height as a fraction of the frame's, 0.36), `point` and `pointNarrow`
+(where the motor sits in the frame; the narrow one up to `breakpoint`, 991px). The start: `startElevation`
+(24°), `sweep` (40° of heading on the way down), `margin` (0.95 round the whole drone). Also
+`propScroll` (turns per 1000px scrolled, 0.35) and `propSeconds` (idle turn, 0 = still); `props`
+(`'blades'` or `'model'`), `blades`, `bladeChord`, `bladeTwist`; `grid` (cell in motor heights, 0.5)
+and `gridFade` (0.3); `ribs` (24); `lineWidth` (1px), `depthEdge` (0.012) and `normalEdge` (0.25); and
+the colours `primary`, `secondary`, `face`, `background`, from `--drone-primary`, `--drone-secondary`,
+`--drone-face`, `--drone-bg` with the map's `--topo-label`, `--topo-label-secondary` and
+`--topo-block` as fallbacks. The model loads from beside the script (`model` overrides), and the
+GLTF loader from jsDelivr's copy of three r128 (`loader` overrides).
