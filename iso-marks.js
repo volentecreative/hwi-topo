@@ -75,7 +75,8 @@
       g.userData.mats = [fm, cm, lm]; return g; };
     const dispose = g => { scene.remove(g); g.children.forEach(c => c.geometry.dispose()); };
     let dirty = true;
-    const S = makeScene({ THREE, scene, solid, dispose, CONFIG, redraw: () => { dirty = true; }, worldPerPx: () => (camera.right - camera.left) / Math.max(1, host.clientWidth) });
+    const lineMaterial = () => { const m = lineMat.clone(); mats.push({ m, kind: 'line' }); return m; };
+    const S = makeScene({ THREE, scene, solid, dispose, lineMaterial, CONFIG, redraw: () => { dirty = true; }, worldPerPx: () => (camera.right - camera.left) / Math.max(1, host.clientWidth) });
 
     function placeCam() {
       const c = S.center(); const el = CONFIG.elevation, az = CONFIG.azimuth;
@@ -142,22 +143,28 @@
     depth: 0.8,            // the block's height as a fraction of the mark's width
     slices: 3,             // how many flags it turns into
     plate: 1,              // how thick each flag is when split, in screen pixels
-    stagger: 0.55          // each layer's share of the animation; the layers' windows overlap, top first apart, bottom first together
+    stagger: 0.85          // each layer's share of the animation: 1 moves every layer together, less lets the top lead on the way apart
   });
-  function flagScene({ THREE, scene, solid, dispose, CONFIG, worldPerPx }) {
-    // the block is N stacked slices of the whole mark. On hover it comes apart one layer at a time, top first: a
-    // layer flattens onto its own floor (the cut below it) and then floats up to its level — the top of the block,
-    // the bottom, and evenly between — so the footprint never changes. Leaving runs the same path backwards, so the
-    // return reads as assembly: the bottom layer forms, the middle drops onto it and closes the gap, then the top.
-    // The un-split block's edges are a separate set, shown while it is whole, so the cuts never show
-    let W, Hm, D, N, sliceH, whole; const slices = [];
+  function flagScene({ THREE, scene, solid, dispose, lineMaterial, CONFIG, worldPerPx }) {
+    // the block is N stacked slices of the whole mark. Each slice has one transform as a flag — a plate at its level:
+    // the bottom of the block, the top, and evenly between — and one as a slice of the block, and it travels straight
+    // between the two, thinning as it goes, so the block's silhouette is there throughout and the last stretch is
+    // gap-closing. The lines along the cuts fade with the gaps they border, so the slices fuse rather than stack:
+    // each slice draws its own vertical edges, and its top and bottom outlines separately
+    let W, Hm, D, N, sliceH; const slices = [];
     const extrude = (shapes, depth) => { const g = new THREE.ExtrudeGeometry(shapes, { depth, bevelEnabled: false }); g.rotateX(-Math.PI / 2); return g; };   // shape plane → the ground, extrusion → up
     function rebuild() {
-      for (const s of slices) dispose(s.grp); slices.length = 0; if (whole) dispose(whole);
+      for (const s of slices) dispose(s.grp); slices.length = 0;
       const mark = CONFIG.mark || defaultMark(); W = mark.width; Hm = mark.height; D = W * CONFIG.depth; N = Math.max(2, CONFIG.slices | 0); sliceH = D / N;
       const shapes = mark.polys.map(poly => { const s = new THREE.Shape(); poly.forEach(([u, v], i) => { const x = u - W / 2, y = -(v - Hm / 2); i ? s.lineTo(x, y) : s.moveTo(x, y); }); s.closePath(); return s; });
-      for (let k = 0; k < N; k++) { const grp = solid(extrude(shapes, sliceH)); grp.position.y = k * sliceH; scene.add(grp); slices.push({ grp, k }); }
-      whole = solid(extrude(shapes, D)); whole.children[0].visible = false; whole.children[1].material = whole.userData.mats[2] = slices[0].grp.children[1].material.clone(); scene.add(whole);
+      const loop = y => { const a = []; for (const poly of mark.polys) for (let i = 0; i < poly.length; i++) { const p = poly[i], q = poly[(i + 1) % poly.length]; a.push(p[0] - W / 2, y, p[1] - Hm / 2, q[0] - W / 2, y, q[1] - Hm / 2); } return a; };
+      const posts = () => { const a = []; for (const poly of mark.polys) for (const p of poly) a.push(p[0] - W / 2, 0, p[1] - Hm / 2, p[0] - W / 2, sliceH, p[1] - Hm / 2); return a; };
+      const lines = (arr, mat) => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3)); const l = new THREE.LineSegments(g, mat); l.renderOrder = 1; return l; };
+      for (let k = 0; k < N; k++) {
+        const grp = solid(extrude(shapes, sliceH)); const auto = grp.children[1]; grp.remove(auto); auto.geometry.dispose();
+        const capB = lines(loop(0), lineMaterial()), capT = lines(loop(sliceH), lineMaterial()), verts = lines(posts(), auto.material);
+        grp.add(verts); grp.add(capB); grp.add(capT); grp.position.y = k * sliceH; scene.add(grp); slices.push({ grp, k, capB, capT });
+      }
     }
     rebuild();
     let target = 0, p = 0, shown = -1;
@@ -171,15 +178,16 @@
         if (p === target && shown === p) return false;
         p = reduced ? target : toward(p, target, CONFIG.seconds, dt);
         const t1 = Math.max(0.002, (+CONFIG.plate || 1) * worldPerPx() / Math.max(0.2, Math.cos(CONFIG.elevation * Math.PI / 180)));   // a plate: so many pixels tall on screen
-        const L = CONFIG.stagger, clamp = v => Math.min(1, Math.max(0, v));   // each layer has its own window of the progress; the windows overlap
+        const L = Math.min(1, Math.max(0.2, +CONFIG.stagger || 1)), clamp = v => Math.min(1, Math.max(0, v));
         for (const s of slices) {
-          const w0 = (N - 1 - s.k) * (1 - L) / Math.max(1, N - 1), u = clamp((p - w0) / L);   // top layer first on the way apart
-          const a = ease(clamp(u / 0.6)), b = ease(clamp((u - 0.6) / 0.4));                    // a: flatten onto the floor; b: float up to the level
-          const th = sliceH + (t1 - sliceH) * a, y0 = s.k * sliceH + (s.k * (D - t1) / (N - 1) - s.k * sliceH) * b;
-          s.grp.scale.y = th / sliceH; s.grp.position.y = y0;
+          const w0 = (N - 1 - s.k) * (1 - L) / Math.max(1, N - 1), e = ease(clamp((p - w0) / L));   // one direct path per slice: plate ↔ slice of the block
+          s.th = sliceH + (t1 - sliceH) * e; s.y0 = s.k * sliceH + (s.k * (D - t1) / (N - 1) - s.k * sliceH) * e;
+          s.grp.scale.y = s.th / sliceH; s.grp.position.y = s.y0;
         }
-        const open = Math.min(1, p / 0.03); whole.children[1].material.opacity = 1 - open; whole.visible = open < 1;
-        for (const s of slices) { s.grp.children[1].material.opacity = open; s.grp.children[1].visible = open > 0; }
+        for (const s of slices) {   // the cut lines fade with the gap they border, over the last quarter of a slice
+          const below = s.k > 0 ? s.y0 - (slices[s.k - 1].y0 + slices[s.k - 1].th) : 1, above = s.k < N - 1 ? slices[s.k + 1].y0 - (s.y0 + s.th) : 1;
+          s.capB.material.opacity = clamp(below / (0.25 * sliceH)); s.capT.material.opacity = clamp(above / (0.25 * sliceH));
+        }
         shown = p; return true;
       }
     };
