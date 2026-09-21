@@ -143,7 +143,7 @@
     depth: 0.7,            // the block's height as a fraction of the mark's width
     slices: 3,             // how many flags it turns into
     plate: 0.045,          // how thick each flag is when split, as a fraction of the mark's width (about the conveyor belt's)
-    slide: 0.35,           // how far the bottom flag slides out along the stripes when split, as a fraction of the width; the ones above slide proportionally less, the top stays
+    slide: 0.35,           // how far the bottom flag slides out toward the viewer when split (the axis the shield's bands step on), as a fraction of the width; the ones above slide proportionally less, the top stays
     stagger: 0.85          // each layer's share of the animation: 1 moves every layer together, less lets the top lead on the way apart
   });
   function flagScene({ THREE, scene, solid, dispose, lineMaterial, CONFIG, worldPerPx }) {
@@ -171,7 +171,7 @@
     let target = 0, p = 0, shown = -1;
     return {
       center() { return new THREE.Vector3(0, D / 2, 0); },
-      bounds() { const pts = []; for (const x of [-W / 2, W / 2 + W * (+CONFIG.slide || 0)]) for (const z of [-Hm / 2, Hm / 2]) pts.push(new THREE.Vector3(x, 0, z), new THREE.Vector3(x, D, z)); return pts; },
+      bounds() { const pts = []; for (const x of [-W / 2, W / 2]) for (const z of [-Hm / 2, Hm / 2 + W * (+CONFIG.slide || 0)]) pts.push(new THREE.Vector3(x, 0, z), new THREE.Vector3(x, D, z)); return pts; },
       enter() { target = 1; }, leave() { target = 0; }, tap() { target = target ? 0 : 1; },
       set(o) { if ('depth' in o || 'slices' in o || 'mark' in o) rebuild(); shown = -1; },
       state() { return { split: p }; },
@@ -183,7 +183,7 @@
         for (const s of slices) {
           const w0 = (N - 1 - s.k) * (1 - L) / Math.max(1, N - 1), e = ease(clamp((p - w0) / L));   // one direct path per slice: plate ↔ slice of the block
           s.th = sliceH + (t1 - sliceH) * e; s.y0 = s.k * sliceH + (s.k * (D - t1) / (N - 1) - s.k * sliceH) * e;
-          s.grp.scale.y = s.th / sliceH; s.grp.position.y = s.y0; s.grp.position.x = W * (+CONFIG.slide || 0) * (N - 1 - s.k) / Math.max(1, N - 1) * e;   // the lower flags slide out along the stripes
+          s.grp.scale.y = s.th / sliceH; s.grp.position.y = s.y0; s.grp.position.z = W * (+CONFIG.slide || 0) * (N - 1 - s.k) / Math.max(1, N - 1) * e;   // the lower flags slide out toward the viewer
         }
         for (const s of slices) {   // the cut lines fade with the gap they border, over the last quarter of a slice
           const below = s.k > 0 ? s.y0 - (slices[s.k - 1].y0 + slices[s.k - 1].th) : 1, above = s.k < N - 1 ? slices[s.k + 1].y0 - (s.y0 + s.th) : 1;
@@ -199,9 +199,11 @@
   const CONVEYOR = Object.assign({}, SHARED, {
     boxes: 2,              // boxes on the belt at rest (one in the gate, then one per pitch)
     box: 0.72,             // box size, in belt widths
-    pitch: 1.45            // spacing along the belt, in belt widths
+    pitch: 1.45,           // spacing along the belt, in belt widths
+    dividers: 0.36,        // spacing of the lines across the belt, in belt widths; they travel with it. 0 = none
+    rollers: 0.3           // spacing of the little roller squares along the belt's near side, in belt widths. 0 = none
   });
-  function conveyorScene({ THREE, scene, solid, dispose, CONFIG }) {
+  function conveyorScene({ THREE, scene, solid, dispose, lineMaterial, CONFIG }) {
     // belt units: width 1 (x), along the belt is +z (toward the viewer); the gate stands at the back
     const BW = 1, BT = 0.08, Z0 = -1.4, Z1 = 1.85, BX = 0.15;           // belt: x centred on BX, from behind the gate to the front end
     const G = { x0: -0.95, x1: 0.85, y1: 1.6, z0: -0.65, z1: -0.25, ox0: -0.36, ox1: 0.66, oy0: BT, oy1: 0.98 };   // the gate and its opening
@@ -209,9 +211,18 @@
     { const s = new THREE.Shape(); s.moveTo(G.x0, 0); s.lineTo(G.x1, 0); s.lineTo(G.x1, G.y1); s.lineTo(G.x0, G.y1); s.closePath();
       const hole = new THREE.Path(); hole.moveTo(G.ox0, G.oy0); hole.lineTo(G.ox1, G.oy0); hole.lineTo(G.ox1, G.oy1); hole.lineTo(G.ox0, G.oy1); hole.closePath(); s.holes.push(hole);
       const g = new THREE.ExtrudeGeometry(s, { depth: G.z1 - G.z0, bevelEnabled: false }); g.translate(0, 0, G.z0); const gate = solid(g); scene.add(gate); }
+    // the belt's own detail: lines across its top every `dividers` (they move with the boxes, wrapping), and a row of
+    // small squares along its near side, like rollers, which stay where they are
+    const lineMat = lineMaterial(); let dividers = null, rollers = null, nDiv = 0;
+    { const sp = +CONFIG.dividers || 0; if (sp > 0) { nDiv = Math.ceil((Z1 - Z0) / sp) + 1; const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(nDiv * 6), 3)); dividers = new THREE.LineSegments(g, lineMat); dividers.renderOrder = 1; scene.add(dividers); }
+      const rp = +CONFIG.rollers || 0; if (rp > 0) { const a = [], x = BX - BW / 2, h = BT * 0.6, y0 = BT * 0.2, y1 = y0 + h; for (let z = G.z1 + rp * 0.6; z < Z1 - h; z += rp) { const z0 = z - h / 2, z1 = z + h / 2; a.push(x, y0, z0, x, y0, z1, x, y0, z1, x, y1, z1, x, y1, z1, x, y1, z0, x, y1, z0, x, y0, z0); }
+        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(a, 3)); rollers = new THREE.LineSegments(g, lineMat); rollers.renderOrder = 1; scene.add(rollers); } }
+    function placeDividers(travel) { if (!dividers) return; const sp = +CONFIG.dividers, len = Z1 - Z0, a = dividers.geometry.attributes.position.array; let n = 0;
+      for (let k = 0; k < nDiv; k++) { const z = Z0 + (((k * sp + travel) % len) + len) % len; if (z > Z1 - 0.01) continue; a[n++] = BX - BW / 2; a[n++] = BT; a[n++] = z; a[n++] = BX + BW / 2; a[n++] = BT; a[n++] = z; }
+      for (; n < a.length; n++) a[n] = 0; dividers.geometry.attributes.position.needsUpdate = true; }
     let boxes = [], B, P, M;
     function rebuild() { for (const b of boxes) dispose(b); boxes = []; B = CONFIG.box; P = CONFIG.pitch; M = Math.max(1, CONFIG.boxes | 0) + 2;   // +1 waiting behind the gate, +1 on its way off
-      for (let j = 0; j < M; j++) { const b = solid(new THREE.BoxGeometry(B, B, B)); scene.add(b); boxes.push(b); } }
+      for (let j = 0; j < M; j++) { const b = solid(new THREE.BoxGeometry(B, B, B)); scene.add(b); boxes.push(b); } placeDividers(0); }
     rebuild();
     const ZM = G.z1 + B * 0.5 - 0.36;   // slot 0: the box in the mouth of the gate, nosing out of it
     let cycles = 0, queued = 0, p = 0, shown = -1;   // cycles done, cycles still to run, progress through the current one
@@ -234,7 +245,7 @@
       update(dt, reduced) {
         if (p === 0 && queued === 0 && shown === cycles) return false;
         if (queued > 0 || p > 0) { p = reduced ? 1 : Math.min(1, p + dt / CONFIG.seconds); if (p >= 1) { p = 0; cycles += 1; queued = Math.max(0, queued - 1); } }
-        const ph = cycles + ease(p); for (let j = 0; j < M; j++) place(boxes[j], slotOf(j, ph));
+        const ph = cycles + ease(p); for (let j = 0; j < M; j++) place(boxes[j], slotOf(j, ph)); placeDividers(ph * P);
         shown = p === 0 ? cycles : -1; return true;
       }
     };

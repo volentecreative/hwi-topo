@@ -319,8 +319,9 @@ relief hides contours), lines in the label colour.
 
 **The flag** lies flat and is extruded up into a block (`depth`, 0.7 of its width). On hover the block
 becomes `slices` (3) flags, each `plate` (0.045 of the width, about the conveyor belt's thickness), at
-the bottom, the top and evenly between; the lower ones slide out along the stripes (`slide`, 0.35 of the
-width for the bottom one, proportionally less above, the top stays put). Each slice travels straight
+the bottom, the top and evenly between; the lower ones slide out toward the viewer, on the axis the
+shield's bands step along (`slide`, 0.35 of the width for the bottom one, proportionally less above,
+the top stays put). Each slice travels straight
 between its two transforms, thinning as it goes, so the block's silhouette is there throughout the
 return and the last stretch is gap-closing; the lines along the cuts fade with the gaps they border,
 so the slices fuse rather than stack. `stagger` (0.85) is each layer's share of the run: 1 moves every
@@ -329,7 +330,8 @@ traced from the reference render; pass `mark: { polys, width, height }` (polygon
 across from the hoist, v down from the top) to use the real SVG's shapes.
 
 **The conveyor** shows `boxes` (2) on the belt: one nosing out of the gate, then one per `pitch`
-(1.45 belt widths). Every hover advances the belt one box: the front box is clipped away at the end of
+(1.45 belt widths), with lines across the belt every `dividers` (0.36) that travel with it, and a row of
+little roller squares along its near side every `rollers` (0.3). Every hover advances the belt one box: the front box is clipped away at the end of
 the belt, shortening to nothing as it passes, and the next comes through the gate. It never runs
 backwards, and hovers queue, so a second hover mid-cycle runs it a second box along.
 
