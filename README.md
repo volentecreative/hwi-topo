@@ -288,3 +288,37 @@ metres about 36.35972, −85.65472 and densified to ~80 m. Until then they are o
 - Pauses rendering when scrolled out of view; honours `prefers-reduced-motion` (stays still, and the descent follows the scroll without damping).
 - Performance: a standard depth buffer (the logarithmic one writes gl_FragDepth, which disables early-Z and hidden-surface removal on tile-based mobile GPUs), reliefs cut into tiles so the camera frustum culls what is off screen (about 1.3 M triangles a frame from orbit, 0.5 M at the landing frame), the continental relief drawn at 10 km since it carries no contours, a frame rendered only when something changed (a stopped scroll costs nothing), and on touch devices no MSAA and a 1.25 pixel-ratio cap (1.5 elsewhere).
 - Terrain: SRTM 1-arc-second (NASA) and Terrain Tiles (Mapzen / AWS Open Data). County: Census cartographic boundary, 1:500k. Countries: Natural Earth 1:110M world, 1:50M North America. The county outline follows the river; the elevation is the true large-scale shape of the terrain, not survey-grade detail.
+
+## iso-marks.js: the flag and the conveyor
+
+A second, much smaller script for the little line-work objects in the ethos cards. Same stack, same
+look: an orthographic camera at an isometric angle, flat faces in one colour, edges drawn as lines,
+colours from CSS variables so they follow the theme. The camera never moves; each object is framed
+once so that every state of its animation fits its box.
+
+```html
+<div id="flag" class="ethos-card_mark"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/volentecreative/hwi-topo@bea1644/iso-marks.js"></script>
+<script>
+  IsoMarks.flag('#flag', { hover: '.ethos-card' });       // the mark, extruded; on hover it splits into three flags
+  IsoMarks.conveyor('#belt', { hover: '.ethos-card' });   // a belt out of a gate; every hover runs it one box along
+</script>
+```
+
+Both take `hover` (the element whose hover drives them, the host by default; keyboard focus counts,
+and on touch a tap stands in), `azimuth` and `elevation` (45 and 30 by default; 35.264 is true
+isometric), `margin`, `shade` (0 keeps every face the same colour, 0.08 lightens the tops), and the
+colours `faceColor`, `lineColor`, `background`, which default to `--iso-face`, `--iso-line` and
+`--iso-bg` with the topo palette's `--topo-block` and `--topo-label` as fallbacks.
+
+**The flag** lies flat and is extruded up into a block (`depth`, 0.8 of its width). On hover it splits
+into `slices` (3) that lift apart by `gap` (0.6 of a slice) around the middle one (`anchor: 'middle'`,
+or `'bottom'` to grow upward), over `seconds` (0.55), and closes again when the pointer leaves. The
+mark's polygons are traced from the reference render; pass `mark: { polys, width, height }` (polygons
+in flag units, u across from the hoist, v down from the top) to use the real SVG's shapes.
+
+**The conveyor** shows `boxes` (2) on the belt: one nosing out of the gate, then one per `pitch`
+(1.45 belt widths). Every hover advances the belt one box: the front box runs off the end, tips
+(`tilt`, 28°) and drops away (`drop`, 0.9), the next comes through the gate, over `seconds` (1.1).
+It never runs backwards, and hovers queue, so a second hover mid-cycle runs it a second box along.
