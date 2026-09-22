@@ -50,7 +50,7 @@
     startPoint: { x: 0.5, y: 0.5 },    // where the whole drone's centre sits at the start; y above 1 puts it below the frame, so only its top peeks in
     startPointNarrow: null,            // … on narrow screens (null = the same)
     breakpoint: 991,
-    progressVar: '--drone-progress',   // a CSS custom property the eased, damped progress (0-1) is written to on the track and the host, so the page's own layout can follow the move; '' = none. Not written up to `breakpoint`
+    progressVar: '--drone-progress',   // a CSS custom property the eased, damped progress (0-1) is written to on the track and the host, so the page's own layout can follow the move; '' = none. In steps of 0.02 up to `breakpoint`
     flag: false,               // an American flag hung behind the drone, in the same line work, waving slowly as if in a light breeze; true = on
     flagWidth: 37,             // its width in the model's units (the drone spans about 7.5); height follows the 1:1.9 ratio
     flagBottom: 2, flagZ: -22, flagX: 0,   // where its bottom edge hangs, how far back it is, and its centre's x
@@ -396,8 +396,9 @@
     const inspect = CONFIG.inspect ? Object.assign({}, INSPECT, CONFIG.inspect) : null;
     const readInspect = () => { if (!inspect || !endEl) return 0; const er = endEl.getBoundingClientRect(), hr = host.getBoundingClientRect(); return Math.min(1, Math.max(0, (hr.top - er.top) / Math.max(1, er.height - hr.height))); };
     // a CSS custom property on the host and the track, in steps of 0.001 and only when it changes: each write invalidates the track's
-    // styles, and on phones a style change round a sticky element can make it re-sync mid-scroll — so not up to `breakpoint`
-    const varLast = {}; const setVar = (name, v, dp) => { if (!name || isNarrow()) return; const s = v.toFixed(dp || 2); if (varLast[name] === s) return; varLast[name] = s; host.style.setProperty(name, s); if (trackEl) trackEl.style.setProperty(name, s); };
+    // styles, and on phones a style change round a sticky element can make it re-sync mid-scroll — so up to `breakpoint` only the
+    // progress is written, in steps of 0.02 (the page's panel fades in on it)
+    const varLast = {}; const setVar = (name, v, dp, narrowToo) => { if (!name) return; const narrow = isNarrow(); if (narrow && !narrowToo) return; const s = narrow ? (Math.round(v * 50) / 50).toFixed(2) : v.toFixed(dp || 2); if (varLast[name] === s) return; varLast[name] = s; host.style.setProperty(name, s); if (trackEl) trackEl.style.setProperty(name, s); };
     const isNarrow = () => !!(global.matchMedia && global.matchMedia('(max-width: ' + (+CONFIG.breakpoint || 991) + 'px)').matches);
     const endPoint = () => (isNarrow() && CONFIG.pointNarrow) || CONFIG.point || { x: 0.5, y: 0.5 };
     const zoomDist = z => motorH / (2 * Math.tan((+CONFIG.fov || 30) * D2R / 2) * Math.max(0.05, z || 0.36));
@@ -489,7 +490,7 @@
       if (rows) for (const r of rows) { const w = inspect.windows[r.n - 1]; if (!w) continue; const reached = q >= w[0] ? true : q < w[0] - 0.02 ? false : !!r.reached; if (reached !== !!r.reached) { r.reached = reached; const n = reached ? inspect.reachEvent : inspect.unreachEvent; if (n) r.el.dispatchEvent(new CustomEvent(n, { bubbles: true })); } }
       dirty = true; shownPos = pos;
       if (endEl) { const a = pos >= 0.98 ? true : pos < 0.9 ? false : arrived; if (a !== arrived) { arrived = a; const n = a ? CONFIG.arriveEvent : CONFIG.leaveEvent; if (n) endEl.dispatchEvent(new CustomEvent(n, { bubbles: true })); } }
-      setVar(CONFIG.progressVar, e, 3); if (inspect) setVar(inspect.inspectVar, q, 3);
+      setVar(CONFIG.progressVar, e, 3, true); if (inspect) setVar(inspect.inspectVar, q, 3);
     }
     const sized = { PR: 0, w: 0, h: 0 };
     function frame() {
@@ -573,5 +574,5 @@
       .then(() => new Promise((res, rej) => new global.THREE.GLTFLoader().load(CONFIG.model || (HERE + 'heavy_lift_drone_model.glb'), res, undefined, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.21.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.22.0' };
 })(typeof window !== 'undefined' ? window : this);
