@@ -110,6 +110,8 @@
     settle: 0.04,              // the hotspot fades in over this much scroll after its window begins, and out over as much before it ends
     rows: '[data-inspect]',    // the feature rows, numbered 1.. in that attribute; the active one gets `activeClass`
     activeClass: 'is-active',
+    reachEvent: 'drone:reach',     // dispatched (bubbling) on a row as the scroll reaches its window, and…
+    unreachEvent: 'drone:unreach', // … on the way back up past its start; '' = none. The page's own scripts can start things on them
     fillVar: '--inspect-fill',   // a CSS custom property written on each row: 0 before its window, 0-1 through it, 1 after — for a progress bar in the row; '' = none
     hotspotClass: '',          // CSS class(es) for the hotspot labels (e.g. the site's eyebrow style)
     leader: [-72, -36, -64],   // the leader line from the hotspot: out by (dx, dy) px, then a run of this many px (negative = leftward, the label at its end)
@@ -478,6 +480,7 @@
       const active = s ? s.active : -1;
       if (active !== activeRow && rows) { activeRow = active; for (const r of rows) r.el.classList.toggle(inspect.activeClass || 'is-active', r.n === active + 1); }
       if (rows && inspect.fillVar) for (const r of rows) { const f = (s ? s.fills[r.n - 1] || 0 : 0).toFixed(2); if (r.fill !== f) { r.fill = f; r.el.style.setProperty(inspect.fillVar, f); } }
+      if (rows) for (const r of rows) { const w = inspect.windows[r.n - 1]; if (!w) continue; const reached = q >= w[0] ? true : q < w[0] - 0.02 ? false : !!r.reached; if (reached !== !!r.reached) { r.reached = reached; const n = reached ? inspect.reachEvent : inspect.unreachEvent; if (n) r.el.dispatchEvent(new CustomEvent(n, { bubbles: true })); } }
       dirty = true; shownPos = pos;
       if (endEl) { const a = pos >= 0.98 ? true : pos < 0.9 ? false : arrived; if (a !== arrived) { arrived = a; const n = a ? CONFIG.arriveEvent : CONFIG.leaveEvent; if (n) endEl.dispatchEvent(new CustomEvent(n, { bubbles: true })); } }
       setVar(CONFIG.progressVar, e, 3); if (inspect) setVar(inspect.inspectVar, q, 3);
@@ -564,5 +567,5 @@
       .then(() => new Promise((res, rej) => new global.THREE.GLTFLoader().load(CONFIG.model || (HERE + 'heavy_lift_drone_model.glb'), res, undefined, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.19.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.20.0' };
 })(typeof window !== 'undefined' ? window : this);
