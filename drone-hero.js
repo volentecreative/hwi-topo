@@ -51,6 +51,7 @@
     startPointNarrow: null,            // … on narrow screens (null = the same)
     breakpoint: 991,
     progressVar: '--drone-progress',   // a CSS custom property the eased, damped progress (0-1) is written to on the track and the host, so the page's own layout can follow the move; '' = none
+    primaryIn: null,           // [from, to]: the window of the path's progress over which the motors go from the secondary colour to the primary (null = primary throughout)
     exitVar: '--drone-exit',           // a CSS custom property that runs 0-1 over the last viewport of the track's scroll, as the pinned canvas begins to leave with the track's end — for fading it out; '' = none
     // the start of the path: the whole aircraft, centred, level, from the front
     startAzimuth: 0,           // camera heading at the start; 0 = the front view
@@ -290,6 +291,11 @@
       gridMat.uniforms.uCentre.value.set(cx, cz); gridMat.uniforms.uExtent.value = n * cell;
       grid = lineMesh(pos, gridMat); scene.add(grid); fadeGrid();
     }
+    let motorMix = 1;   // 0 = the motors in the secondary colour, 1 = in the primary
+    function motorColor(e) {
+      const w = CONFIG.primaryIn; motorMix = Array.isArray(w) && w.length === 2 && w[1] > w[0] ? Math.min(1, Math.max(0, (e - w[0]) / (w[1] - w[0]))) : 1;
+      const c = new THREE.Color(CONFIG.secondary).lerp(new THREE.Color(CONFIG.primary), motorMix); ribMat.uniforms.uColor.value.copy(c); edgeMat.uniforms.uC1.value.copy(c);
+    }
     function fadeGrid() {   // where the focus sits on screen, and how far out the fade starts
       const t = new THREE.Vector3().copy(camTarget).project(camera); gridMat.uniforms.uFocus.value.set(t.x, t.y); gridMat.uniforms.uFade0.value = Math.max(0, Math.min(0.95, +CONFIG.gridFade || 0.3));
     }
@@ -314,7 +320,7 @@
       const narrow = global.matchMedia && global.matchMedia('(max-width: ' + (+CONFIG.breakpoint || 991) + 'px)').matches;
       const pe = (narrow && CONFIG.pointNarrow) || CONFIG.point || { x: 0.5, y: 0.5 }, ps = (narrow && CONFIG.startPointNarrow) || CONFIG.startPoint || { x: 0.5, y: 0.5 }, px = ps.x + (pe.x - ps.x) * e, py = ps.y + (pe.y - ps.y) * e;
       camera.setViewOffset(w, h, (0.5 - px) * w, (0.5 - py) * h, w, h); camera.updateProjectionMatrix(); camera.updateMatrixWorld();
-      fadeGrid(); dirty = true;
+      fadeGrid(); motorColor(e); dirty = true;
       if (CONFIG.progressVar) { const v = e.toFixed(4); host.style.setProperty(CONFIG.progressVar, v); if (trackEl) trackEl.style.setProperty(CONFIG.progressVar, v); }
     }
     function frame() {
@@ -374,7 +380,7 @@
     function applyColors() {
       const next = {}; for (const k of COLOR_KEYS) next[k] = resolveColor(host, RAW[k]);
       const sig = JSON.stringify(next); if (sig === lastColors) return; lastColors = sig; Object.assign(CONFIG, next);
-      host.style.background = CONFIG.background; faceMat.color.set(CONFIG.face); ribMat.uniforms.uColor.value.set(CONFIG.primary); gridMat.uniforms.uColor.value.set(CONFIG.gridColor); for (const m of lineMats) m.uniforms.uBg.value.set(CONFIG.face); edgeMat.uniforms.uC1.value.set(CONFIG.primary); edgeMat.uniforms.uC2.value.set(CONFIG.secondary); if (!grid) buildGrid(); dirty = true;
+      host.style.background = CONFIG.background; faceMat.color.set(CONFIG.face); gridMat.uniforms.uColor.value.set(CONFIG.gridColor); for (const m of lineMats) m.uniforms.uBg.value.set(CONFIG.face); edgeMat.uniforms.uC2.value.set(CONFIG.secondary); motorColor(ease(progress)); if (!grid) buildGrid(); dirty = true;
     }
     applyColors();
     const themeWatch = setInterval(() => { if (alive) applyColors(); }, 400);
@@ -396,5 +402,5 @@
       .then(() => new Promise((res, rej) => new global.THREE.GLTFLoader().load(CONFIG.model || (HERE + 'heavy_lift_drone_model.glb'), res, undefined, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.8.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.9.0' };
 })(typeof window !== 'undefined' ? window : this);

@@ -395,7 +395,8 @@ is fitted to the frame from that heading). Also
 (`'blades'` or `'model'`), `blades`, `bladeChord`, `bladeTwist`; `grid` (cell in motor heights, 1)
 and `gridFade` (0.3; the grid also fades out toward its own edge, all round), `gridExtent` (24 motor
 heights from the drone's centre) and `gridWidth` (1px); `ribs`
-(24 per motor), `ribWidth` (1px) and `ribOpacity` (0.8); `lineWidth` (1px), `depthEdge` (0.012) and
+(24 per motor), `ribWidth` (1px) and `ribOpacity` (0.8); `primaryIn` (`[from, to]`: the window of the path's progress
+over which the motors go from the secondary colour to the primary; null = primary throughout); `lineWidth` (1px), `depthEdge` (0.012) and
 `normalEdge` (0.25);
 `supersample` (2: the edge pass runs at twice the canvas resolution and averages, so the lines are
 antialiased; the faces, ribs and grid are multisampled), `pixelBudget` (8 million pixels: the most the
