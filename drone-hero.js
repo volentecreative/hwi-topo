@@ -59,7 +59,7 @@
     flagOpacity: 0.85,         // the stripes' and stars' opacity (their colour is the secondary)
     flagFade: [0.5, 0.85],     // [from, to]: the window of the path's progress over which the flag fades away, so the close-up never shows its edge cut across the frame; null = never
     primaryIn: null,           // [from, to]: the window of the path's progress over which the motors go from the secondary colour to the primary (null = primary throughout)
-    exitVar: '--drone-exit',   // a CSS custom property that runs 0-1 over the last viewport of the track's scroll, as the pinned canvas begins to leave with the track's end; '' = none
+    exitVar: '',               // a CSS custom property that runs 0-1 over the last viewport of the track's scroll, as the pinned canvas begins to leave with the track's end; '' = none (it costs a layout read per scroll event)
     // the inspection: once the path has arrived (the runEnd section at the top), that section's own scroll steps the
     // camera through three resting poses round the motor, each with a hotspot on the motor and a feature row made
     // active. null = none. See INSPECT for the defaults; pass any subset to change them
@@ -84,7 +84,10 @@
     gridColor: 'var(--drone-grid, var(--drone-secondary, var(--topo-label-secondary, #9a9a96)))',   // the floor grid's lines, before their fade toward the face colour
     face: 'var(--drone-face, var(--topo-block, #222322))',
     background: 'var(--drone-bg, transparent)',
-    pixelRatioCap: 2
+    pixelRatioCap: 2,
+    // on touch devices (a coarse pointer) the work per frame is cut: the canvas at a lower pixel ratio, and at most this many frames a second
+    pixelRatioCapCoarse: 1.5,
+    fpsCoarse: 30
   };
   const COLOR_KEYS = ['primary', 'secondary', 'gridColor', 'face', 'background'];
   const INSPECT = {
@@ -386,6 +389,8 @@
     // the inspection's progress: how far the end section has scrolled past the canvas's top, over its extra height
     const inspect = CONFIG.inspect ? Object.assign({}, INSPECT, CONFIG.inspect) : null;
     const readInspect = () => { if (!inspect || !endEl) return 0; const er = endEl.getBoundingClientRect(), hr = host.getBoundingClientRect(); return Math.min(1, Math.max(0, (hr.top - er.top) / Math.max(1, er.height - hr.height))); };
+    // a CSS custom property on the host and the track, in steps of 0.01 and only when it changes: each write invalidates the track's styles
+    const varLast = {}; const setVar = (name, v) => { if (!name) return; const s = v.toFixed(2); if (varLast[name] === s) return; varLast[name] = s; host.style.setProperty(name, s); if (trackEl) trackEl.style.setProperty(name, s); };
     const isNarrow = () => !!(global.matchMedia && global.matchMedia('(max-width: ' + (+CONFIG.breakpoint || 991) + 'px)').matches);
     const endPoint = () => (isNarrow() && CONFIG.pointNarrow) || CONFIG.point || { x: 0.5, y: 0.5 };
     const zoomDist = z => motorH / (2 * Math.tan((+CONFIG.fov || 30) * D2R / 2) * Math.max(0.05, z || 0.36));
@@ -451,7 +456,7 @@
       if (rows === null) rows = rowEls();
       if (s.active !== activeRow) { activeRow = s.active; for (const r of rows) r.el.classList.toggle(inspect.activeClass || 'is-active', r.n === s.active + 1); }
       dirty = true;
-      if (inspect.inspectVar) { const v = q.toFixed(4); host.style.setProperty(inspect.inspectVar, v); if (trackEl) trackEl.style.setProperty(inspect.inspectVar, v); }
+      setVar(inspect.inspectVar, q);
     }
     function placeCam(e) {
       const fov = (+CONFIG.fov || 30) * D2R, a = w / h, hfov = 2 * Math.atan(Math.tan(fov / 2) * a);
@@ -467,13 +472,13 @@
       if (rows === null && inspect) rows = rowEls(); if (activeRow !== -1 && rows) { activeRow = -1; for (const r of rows) r.el.classList.remove(inspect.activeClass || 'is-active'); }
       if (flag) { const w = CONFIG.flagFade, f = Array.isArray(w) && w.length === 2 && w[1] > w[0] ? 1 - Math.min(1, Math.max(0, (e - w[0]) / (w[1] - w[0]))) : 1; flag.mat.uniforms.uOpacity.value = (+CONFIG.flagOpacity || 0.85) * f; edgeMat.uniforms.uFlagA.value = f; }
       dirty = true;
-      if (CONFIG.progressVar) { const v = e.toFixed(4); host.style.setProperty(CONFIG.progressVar, v); if (trackEl) trackEl.style.setProperty(CONFIG.progressVar, v); }
+      setVar(CONFIG.progressVar, e);
     }
     function frame() {
       w = host.clientWidth || 1; h = host.clientHeight || 1; camera.aspect = w / h; camera.fov = +CONFIG.fov || 30;
       // the canvas at the device's pixel ratio (capped); the edge pass at `supersample` times that, in as many tiles as
       // the pixel budget (and the largest texture) asks for, each with a guard band so the lines run across tile edges
-      const PR = Math.min(devicePixelRatio || 1, +CONFIG.pixelRatioCap || 2); renderer.setPixelRatio(PR); renderer.setSize(w, h, false);
+      const PR = Math.min(devicePixelRatio || 1, coarse ? (+CONFIG.pixelRatioCapCoarse || 1.5) : (+CONFIG.pixelRatioCap || 2)); renderer.setPixelRatio(PR); renderer.setSize(w, h, false);
       const S = Math.max(1, +CONFIG.supersample || 1), W = Math.round(w * PR), H = Math.round(h * PR), maxT = Math.min(8192, renderer.capabilities.maxTextureSize || 8192), budget = +CONFIG.pixelBudget || 8e6;
       T.nx = Math.max(1, Math.ceil(W * S / maxT)); T.ny = Math.max(1, Math.ceil(H * S / maxT), Math.ceil(W * S * H * S / (budget * T.nx)));
       T.w = Math.ceil(W / T.nx); T.h = Math.ceil(H / T.ny); T.g = 3; T.PR = PR; T.S = S; T.W = W; T.H = H;
@@ -506,7 +511,7 @@
     }
     // ---- the loop: the camera follows the scroll through the track, damped; the props turn with the scroll
     let dirty = true, alive = true, visible = true, lastT = performance.now(), spin = 0, spinTarget = 0, idle = 0, flagT = 0;
-    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches, coarse = matchMedia('(pointer: coarse)').matches, frameMs = coarse && +CONFIG.fpsCoarse > 0 ? 1000 / +CONFIG.fpsCoarse : 0; let lastRender = 0;
     const onScroll = () => { spinTarget = (global.scrollY || 0) / 1000 * (+CONFIG.propScroll || 0) * Math.PI * 2; progressTarget = trackEl ? readProgress() : 1; inspTarget = readInspect(); posTarget = progressTarget + inspTarget;
       if (trackEl && CONFIG.exitVar) { const tr = trackEl.getBoundingClientRect(), hr = host.getBoundingClientRect(); const ex = Math.min(1, Math.max(0, 1 - (tr.bottom - hr.top) / Math.max(1, hr.height))).toFixed(4); host.style.setProperty(CONFIG.exitVar, ex); trackEl.style.setProperty(CONFIG.exitVar, ex); } };
     addEventListener('scroll', onScroll, { passive: true }); onScroll(); spin = spinTarget; progress = progressTarget; insp = inspTarget; pos = posTarget;
@@ -522,7 +527,7 @@
         for (const p of props) p.mesh.rotation.y = p.dir * (spin + idle) + p.phase;
         if (flag) { flagT += dt; flag.update(flagT); dirty = true; }
       }
-      if (!dirty || !visible) return; dirty = false; render();
+      if (!dirty || !visible || now - lastRender < frameMs - 2) return; dirty = false; lastRender = now; render();
     }
     requestAnimationFrame(tick);
     let lastColors = '';
@@ -551,5 +556,5 @@
       .then(() => new Promise((res, rej) => new global.THREE.GLTFLoader().load(CONFIG.model || (HERE + 'heavy_lift_drone_model.glb'), res, undefined, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.14.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.15.0' };
 })(typeof window !== 'undefined' ? window : this);

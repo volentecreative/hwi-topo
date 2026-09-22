@@ -418,7 +418,8 @@ progress over which the flag fades away, so the close-up never shows its edge cu
 `supersample` (2: the edge pass runs at twice the canvas resolution and averages, so the lines are
 antialiased; the faces, ribs and grid are multisampled), `pixelBudget` (8 million pixels: the most the
 edge pass holds at once; a bigger frame is rendered in tiles, so the quality never drops) and
-`pixelRatioCap` (2); and
+`pixelRatioCap` (2), and on touch devices `pixelRatioCapCoarse` (1.5) and `fpsCoarse` (30: at most this many
+frames a second, so the page's own scrolling keeps its frames); and
 the colours `primary`, `secondary`, `gridColor` (the floor grid, falling back to the secondary), `face`,
 `background`, from `--drone-primary`, `--drone-secondary`, `--drone-grid`,
 `--drone-face`, `--drone-bg` with the map's `--topo-label`, `--topo-label-secondary` and
