@@ -59,6 +59,8 @@
     flagOpacity: 0.85,         // the stripes' and stars' opacity (their colour is the secondary)
     flagFade: [0.5, 0.85],     // [from, to]: the window of the path's progress over which the flag fades away, so the close-up never shows its edge cut across the frame; null = never
     primaryIn: null,           // [from, to]: the window of the path's progress over which the motors go from the secondary colour to the primary (null = primary throughout)
+    arriveEvent: 'drone:arrive',   // dispatched (bubbling) on the runEnd element when the path arrives there, and…
+    leaveEvent: 'drone:leave',     // … when the scroll takes it back up the path; '' = none. The page's own scripts can start things on them
     exitVar: '',               // a CSS custom property that runs 0-1 over the last viewport of the track's scroll, as the pinned canvas begins to leave with the track's end; '' = none (it costs a layout read per scroll event)
     // the inspection: once the path has arrived (the runEnd section at the top), that section's own scroll steps the
     // camera through three resting poses round the motor, each with a hotspot on the motor and a feature row made
@@ -381,7 +383,7 @@
     // ---- the path: spherical about a target that slides from the drone's centre to the motor, distance in log
     // space, heading and height easing between the two ends, the framing point too — one camera, really moving
     // pos: the approach and the inspection as one scroll value (0-2), damped as one so the hand-over never jumps
-    let w = 1, h = 1, progress = 0, progressTarget = 0, insp = 0, inspTarget = 0, pos = 0, posTarget = 0, shownPos = -1; const camTarget = droneC.clone(); const T = { nx: 1, ny: 1, w: 1, h: 1, g: 3, PR: 1, S: 1, W: 1, H: 1 };   // the edge pass's tiling
+    let w = 1, h = 1, progress = 0, progressTarget = 0, insp = 0, inspTarget = 0, pos = 0, posTarget = 0, shownPos = -1, arrived = false; const camTarget = droneC.clone(); const T = { nx: 1, ny: 1, w: 1, h: 1, g: 3, PR: 1, S: 1, W: 1, H: 1 };   // the edge pass's tiling
     const trackEl = (() => { const t = CONFIG.track; if (!t) return null; if (t.nodeType) return t; if (typeof t === 'string' && t.startsWith('closest:')) return host.closest(t.slice(8)); return document.querySelector(t); })();
     const endEl = trackEl && CONFIG.runEnd ? (typeof CONFIG.runEnd === 'string' ? trackEl.querySelector(CONFIG.runEnd) : CONFIG.runEnd) : null;
     const readProgress = () => { if (!trackEl) return 1; const r = trackEl.getBoundingClientRect();
@@ -390,7 +392,7 @@
     // the inspection's progress: how far the end section has scrolled past the canvas's top, over its extra height
     const inspect = CONFIG.inspect ? Object.assign({}, INSPECT, CONFIG.inspect) : null;
     const readInspect = () => { if (!inspect || !endEl) return 0; const er = endEl.getBoundingClientRect(), hr = host.getBoundingClientRect(); return Math.min(1, Math.max(0, (hr.top - er.top) / Math.max(1, er.height - hr.height))); };
-    // a CSS custom property on the host and the track, in steps of 0.01 and only when it changes: each write invalidates the track's
+    // a CSS custom property on the host and the track, in steps of 0.001 and only when it changes: each write invalidates the track's
     // styles, and on phones a style change round a sticky element can make it re-sync mid-scroll — so not up to `breakpoint`
     const varLast = {}; const setVar = (name, v, dp) => { if (!name || isNarrow()) return; const s = v.toFixed(dp || 2); if (varLast[name] === s) return; varLast[name] = s; host.style.setProperty(name, s); if (trackEl) trackEl.style.setProperty(name, s); };
     const isNarrow = () => !!(global.matchMedia && global.matchMedia('(max-width: ' + (+CONFIG.breakpoint || 991) + 'px)').matches);
@@ -477,7 +479,8 @@
       if (active !== activeRow && rows) { activeRow = active; for (const r of rows) r.el.classList.toggle(inspect.activeClass || 'is-active', r.n === active + 1); }
       if (rows && inspect.fillVar) for (const r of rows) { const f = (s ? s.fills[r.n - 1] || 0 : 0).toFixed(2); if (r.fill !== f) { r.fill = f; r.el.style.setProperty(inspect.fillVar, f); } }
       dirty = true; shownPos = pos;
-      setVar(CONFIG.progressVar, e); if (inspect) setVar(inspect.inspectVar, q, 3);
+      if (endEl) { const a = pos >= 0.98 ? true : pos < 0.9 ? false : arrived; if (a !== arrived) { arrived = a; const n = a ? CONFIG.arriveEvent : CONFIG.leaveEvent; if (n) endEl.dispatchEvent(new CustomEvent(n, { bubbles: true })); } }
+      setVar(CONFIG.progressVar, e, 3); if (inspect) setVar(inspect.inspectVar, q, 3);
     }
     const sized = { PR: 0, w: 0, h: 0 };
     function frame() {
@@ -561,5 +564,5 @@
       .then(() => new Promise((res, rej) => new global.THREE.GLTFLoader().load(CONFIG.model || (HERE + 'heavy_lift_drone_model.glb'), res, undefined, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.18.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.19.0' };
 })(typeof window !== 'undefined' ? window : this);
