@@ -376,7 +376,8 @@
     }
     // ---- the path: spherical about a target that slides from the drone's centre to the motor, distance in log
     // space, heading and height easing between the two ends, the framing point too — one camera, really moving
-    let w = 1, h = 1, progress = 0, progressTarget = 0, shownProgress = -1, insp = 0, inspTarget = 0, shownInsp = -1; const camTarget = droneC.clone(); const T = { nx: 1, ny: 1, w: 1, h: 1, g: 3, PR: 1, S: 1, W: 1, H: 1 };   // the edge pass's tiling
+    // pos: the approach and the inspection as one scroll value (0-2), damped as one so the hand-over never jumps
+    let w = 1, h = 1, progress = 0, progressTarget = 0, shownProgress = -1, insp = 0, inspTarget = 0, shownInsp = -1, pos = 0, posTarget = 0; const camTarget = droneC.clone(); const T = { nx: 1, ny: 1, w: 1, h: 1, g: 3, PR: 1, S: 1, W: 1, H: 1 };   // the edge pass's tiling
     const trackEl = (() => { const t = CONFIG.track; if (!t) return null; if (t.nodeType) return t; if (typeof t === 'string' && t.startsWith('closest:')) return host.closest(t.slice(8)); return document.querySelector(t); })();
     const endEl = trackEl && CONFIG.runEnd ? (typeof CONFIG.runEnd === 'string' ? trackEl.querySelector(CONFIG.runEnd) : CONFIG.runEnd) : null;
     const readProgress = () => { if (!trackEl) return 1; const r = trackEl.getBoundingClientRect();
@@ -480,7 +481,7 @@
       edgeMat.uniforms.uWidth.value = Math.max(0.5, (+CONFIG.lineWidth || 1) * S * PR / 1.5);
       ribMat.uniforms.uWidth.value = Math.max(0.3, (+CONFIG.ribWidth || 1) * PR); gridMat.uniforms.uWidth.value = Math.max(0.3, (+CONFIG.gridWidth || 1) * PR); ribMat.uniforms.uOpacity.value = +CONFIG.ribOpacity;
       for (const m of lineMats) { if (m !== ribMat && m !== gridMat) m.uniforms.uWidth.value = Math.max(0.3, (+CONFIG.gridWidth || 1) * PR); m.uniforms.uRes.value.set(W, H); m.uniforms.uHalf.value = m.uniforms.uWidth.value / 2 + 1; }
-      if (!trackEl) progress = progressTarget = 1; place();
+      if (!trackEl) progress = progressTarget = pos = posTarget = 1; place();
     }
     // the camera for the current progress: the approach until it has arrived, then the inspection
     function place() { if (inspect && progress >= 1 && insp > 0 && !isNarrow()) placeInspect(insp); else placeCam(ease(progress)); shownProgress = progress; shownInsp = insp; }
@@ -506,15 +507,14 @@
     // ---- the loop: the camera follows the scroll through the track, damped; the props turn with the scroll
     let dirty = true, alive = true, visible = true, lastT = performance.now(), spin = 0, spinTarget = 0, idle = 0, flagT = 0;
     const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const onScroll = () => { spinTarget = (global.scrollY || 0) / 1000 * (+CONFIG.propScroll || 0) * Math.PI * 2; progressTarget = trackEl ? readProgress() : 1; inspTarget = readInspect();
+    const onScroll = () => { spinTarget = (global.scrollY || 0) / 1000 * (+CONFIG.propScroll || 0) * Math.PI * 2; progressTarget = trackEl ? readProgress() : 1; inspTarget = readInspect(); posTarget = progressTarget + inspTarget;
       if (trackEl && CONFIG.exitVar) { const tr = trackEl.getBoundingClientRect(), hr = host.getBoundingClientRect(); const ex = Math.min(1, Math.max(0, 1 - (tr.bottom - hr.top) / Math.max(1, hr.height))).toFixed(4); host.style.setProperty(CONFIG.exitVar, ex); trackEl.style.setProperty(CONFIG.exitVar, ex); } };
-    addEventListener('scroll', onScroll, { passive: true }); onScroll(); spin = spinTarget; progress = progressTarget;
+    addEventListener('scroll', onScroll, { passive: true }); onScroll(); spin = spinTarget; progress = progressTarget; insp = inspTarget; pos = posTarget;
     const io = new IntersectionObserver(en => { visible = en[0].isIntersecting; }); io.observe(host);
     function tick(now) {
       if (!alive) return; requestAnimationFrame(tick);
       const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
-      if (visible && progressTarget !== progress) { progress = reduced ? progressTarget : progress + (progressTarget - progress) * Math.min(1, (+CONFIG.damping || 0.12) * dt * 60); if (Math.abs(progressTarget - progress) < 1e-5) progress = progressTarget; }
-      if (visible && inspTarget !== insp) { insp = reduced ? inspTarget : insp + (inspTarget - insp) * Math.min(1, (+CONFIG.damping || 0.12) * dt * 60); if (Math.abs(inspTarget - insp) < 1e-5) insp = inspTarget; }
+      if (visible && posTarget !== pos) { pos = reduced ? posTarget : pos + (posTarget - pos) * Math.min(1, (+CONFIG.damping || 0.12) * dt * 60); if (Math.abs(posTarget - pos) < 1e-5) pos = posTarget; progress = Math.min(1, pos); insp = Math.max(0, pos - 1); }
       if (visible && (progress !== shownProgress || insp !== shownInsp)) place();
       if (!reduced && visible) {
         if (CONFIG.propSeconds > 0) { idle += dt * Math.PI * 2 / CONFIG.propSeconds; dirty = true; }
@@ -537,7 +537,7 @@
     frame();
     return {
       set(patch) { Object.assign(CONFIG, patch || {}); for (const k of COLOR_KEYS) if (patch && k in patch) { RAW[k] = patch[k]; lastColors = ''; } edgeMat.uniforms.uDepthT.value = +CONFIG.depthEdge || 0.012; edgeMat.uniforms.uNormT.value = +CONFIG.normalEdge || 0.25; if (patch && ('grid' in patch || 'gridExtent' in patch)) buildGrid(); applyColors(); onScroll(); frame(); },
-      setProgress(p, q) { progressTarget = progress = Math.min(1, Math.max(0, +p || 0)); inspTarget = insp = Math.min(1, Math.max(0, +q || 0)); place(); },
+      setProgress(p, q) { progressTarget = progress = Math.min(1, Math.max(0, +p || 0)); inspTarget = insp = Math.min(1, Math.max(0, +q || 0)); posTarget = pos = progress + insp; place(); },
       get state() { const d = camera.position.clone().sub(camTarget); return { focus: key, azimuth: azimuth(), startAzimuth: azimuth0(), progress, inspect: insp, heading: [Math.atan2(d.x, d.z) / D2R, Math.atan2(d.y, Math.hypot(d.x, d.z)) / D2R, d.length()], motorHeight: motorH, triangles: tris, props: props.length, pixelRatio: renderer.getPixelRatio(), edgePass: [rt.width, rt.height], tiles: T.nx * T.ny }; },
       destroy() { alive = false; clearInterval(themeWatch); io.disconnect(); removeEventListener('scroll', onScroll); if (ro) ro.disconnect(); else removeEventListener('resize', frame); rt.dispose(); renderer.dispose(); renderer.domElement.remove(); }
     };
