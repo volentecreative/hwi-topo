@@ -115,7 +115,9 @@
     unreachEvent: 'drone:unreach', // … on the way back up past its start; '' = none. The page's own scripts can start things on them
     fillVar: '--inspect-fill',   // a CSS custom property written on each row: 0 before its window, 0-1 through it, 1 after — for a progress bar in the row; '' = none
     hotspotClass: '',          // CSS class(es) for the hotspot labels (e.g. the site's eyebrow style)
-    leader: [-72, -36, -64],   // the leader line from the hotspot: out by (dx, dy) px, then a run of this many px (negative = leftward, the label at its end)
+    leader: [0, -72],          // the callout, as the topo map's: a straight leader from the anchor out by (dx, dy) px to a small square, the label above it
+    dot: 6,                    // the square's side (px)
+    // (the old three-value form [dx, dy, run] still reads: the run is ignored) // the leader line from the hotspot: out by (dx, dy) px, then a run of this many px (negative = leftward, the label at its end)
     inspectVar: '--drone-inspect'   // a CSS custom property the inspection's progress (0-1) is written to
   };
 
@@ -416,13 +418,12 @@
       if (!inspect) return; const NS = 'http://www.w3.org/2000/svg', svg = document.createElementNS(NS, 'svg');
       Object.assign(svg.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', overflow: 'visible', pointerEvents: 'none' });
       const items = inspect.poses.map(p => { const g = document.createElementNS(NS, 'g'); g.style.opacity = '0';
-        const ring = document.createElementNS(NS, 'circle'); ring.setAttribute('r', '8'); ring.setAttribute('fill', 'none'); ring.setAttribute('stroke-width', '1'); ring.setAttribute('opacity', '0.7');
-        const dot = document.createElementNS(NS, 'circle'); dot.setAttribute('r', '2.5');
-        const path = document.createElementNS(NS, 'path'); path.setAttribute('fill', 'none'); path.setAttribute('stroke-width', '1');
-        g.append(ring, dot, path); svg.appendChild(g);
+        const d = +inspect.dot || 6, dot = document.createElementNS(NS, 'rect'); dot.setAttribute('width', d); dot.setAttribute('height', d);   // the square at the leader's end, as the map's county marker
+        const path = document.createElementNS(NS, 'line'); path.setAttribute('stroke-width', '1');
+        g.append(path, dot); svg.appendChild(g);
         const label = document.createElement('div'); if (inspect.hotspotClass) label.className = inspect.hotspotClass; label.textContent = p.label || '';
         Object.assign(label.style, { position: 'absolute', left: '0', top: '0', whiteSpace: 'nowrap', pointerEvents: 'none', opacity: '0', margin: '0' }); host.appendChild(label);
-        return { g, dot, ring, path, label }; });
+        return { g, dot, path, label }; });
       host.appendChild(svg); hot = { svg, items };
     }
     const anchorOf = p => { const hs = coils[key], a = p.anchor || {}; if (!hs) return target.clone(); const ang = (+a.angle || 0) * D2R, r = hs.r * (a.radius == null ? 1 : +a.radius);
@@ -476,12 +477,15 @@
       if (rows === null && inspect) rows = rowEls();
       const s = useInsp && q > 0 ? inspectAt(q) : null;
       // the hotspots: the anchor projected to the frame, the leader out from it, the label at the leader's end
-      if (hot && s) { const [dx, dy, run] = inspect.leader || [-64, -40, -56], v = new THREE.Vector3();
+      if (hot && s) { const [dx, dy] = inspect.leader || [0, -72], d = +inspect.dot || 6, v = new THREE.Vector3();
         hot.shown = true; inspect.poses.forEach((p, k) => { const it = hot.items[k], o = s.hots[k], os = o.toFixed(3); if (it.shown !== os) { it.shown = os; it.g.style.opacity = os; it.label.style.opacity = os; } if (o <= 0) return;
-          v.copy(anchorOf(p)).project(camera); const x = (v.x + 1) / 2 * w, y = (1 - v.y) / 2 * h, ex = x + dx, ey = y + dy, lx = ex + run;
-          it.dot.setAttribute('cx', x.toFixed(1)); it.dot.setAttribute('cy', y.toFixed(1)); it.ring.setAttribute('cx', x.toFixed(1)); it.ring.setAttribute('cy', y.toFixed(1));
-          it.path.setAttribute('d', 'M' + x.toFixed(1) + ' ' + y.toFixed(1) + ' L' + ex.toFixed(1) + ' ' + ey.toFixed(1) + ' L' + lx.toFixed(1) + ' ' + ey.toFixed(1));
-          it.label.style.transform = 'translate(' + (run < 0 ? 'calc(' + (lx - 6).toFixed(1) + 'px - 100%)' : (lx + 6).toFixed(1) + 'px') + ', calc(' + ey.toFixed(1) + 'px - 50%))'; }); }
+          v.copy(anchorOf(p)).project(camera); const x = (v.x + 1) / 2 * w, y = (1 - v.y) / 2 * h, ex = x + dx, ey = y + dy;
+          it.path.setAttribute('x1', x.toFixed(1)); it.path.setAttribute('y1', y.toFixed(1)); it.path.setAttribute('x2', ex.toFixed(1)); it.path.setAttribute('y2', ey.toFixed(1));
+          it.dot.setAttribute('x', (ex - d / 2).toFixed(1)); it.dot.setAttribute('y', (ey - d / 2).toFixed(1));
+          // the label sits over the square when the leader runs up, under it when down, beside it when sideways
+          const up = dy < 0, side = Math.abs(dx) > Math.abs(dy), gap = d / 2 + 6;
+          it.label.style.transform = side ? 'translate(' + (dx < 0 ? 'calc(' + (ex - gap).toFixed(1) + 'px - 100%)' : (ex + gap).toFixed(1) + 'px') + ', calc(' + ey.toFixed(1) + 'px - 50%))'
+            : 'translate(calc(' + ex.toFixed(1) + 'px - 50%), ' + (up ? 'calc(' + (ey - gap).toFixed(1) + 'px - 100%)' : (ey + gap).toFixed(1) + 'px') + ')'; }); }
       else if (hot && hot.shown) { hot.shown = false; for (const it of hot.items) { it.shown = '0.000'; it.g.style.opacity = '0'; it.label.style.opacity = '0'; } }
       // the feature rows
       const active = s ? s.active : -1;
@@ -552,7 +556,7 @@
     function applyColors() {
       const next = {}; for (const k of COLOR_KEYS) next[k] = resolveColor(host, RAW[k]);
       const sig = JSON.stringify(next); if (sig === lastColors) return; lastColors = sig; Object.assign(CONFIG, next);
-      host.style.background = CONFIG.background; faceMat.color.set(CONFIG.face); if (hot) for (const it of hot.items) { it.dot.setAttribute('fill', CONFIG.primary); it.ring.setAttribute('stroke', CONFIG.primary); it.path.setAttribute('stroke', CONFIG.primary); it.label.style.color = CONFIG.primary; } gridMat.uniforms.uColor.value.set(CONFIG.gridColor); for (const m of lineMats) { m.uniforms.uBg.value.set(CONFIG.face); if (m !== ribMat && m !== gridMat) m.uniforms.uColor.value.set(CONFIG.secondary); } edgeMat.uniforms.uC2.value.set(CONFIG.secondary); motorColor(ease(progress)); if (!grid) buildGrid(); dirty = true;
+      host.style.background = CONFIG.background; faceMat.color.set(CONFIG.face); if (hot) for (const it of hot.items) { it.dot.setAttribute('fill', CONFIG.primary); it.path.setAttribute('stroke', CONFIG.primary); it.label.style.color = CONFIG.primary; } gridMat.uniforms.uColor.value.set(CONFIG.gridColor); for (const m of lineMats) { m.uniforms.uBg.value.set(CONFIG.face); if (m !== ribMat && m !== gridMat) m.uniforms.uColor.value.set(CONFIG.secondary); } edgeMat.uniforms.uC2.value.set(CONFIG.secondary); motorColor(ease(progress)); if (!grid) buildGrid(); dirty = true;
     }
     buildHotspots(); applyColors();
     const themeWatch = setInterval(() => { if (alive) applyColors(); }, 400);
@@ -574,5 +578,5 @@
       .then(() => new Promise((res, rej) => new global.THREE.GLTFLoader().load(CONFIG.model || (HERE + 'heavy_lift_drone_model.glb'), res, undefined, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.22.1' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.23.0' };
 })(typeof window !== 'undefined' ? window : this);

@@ -366,7 +366,8 @@ rows get `is-active`, each row gets `--inspect-fill`, 0-1 through its window, fo
 reaches its window, `drone:unreach` on the way back up past it; with `click` a click on a row scrolls the page to its
 window); the camera passes through the pose at the window's centre (or the pose's `at`), and a
 pose can shift the look-at point toward the drone's centre (`centre`) or elsewhere in the frame (`point`). The
-poses, the windows, `settle`, the rows selector, the label class (`hotspotClass`) and the leader's shape are
+poses, the windows, `settle`, the rows selector, the label class (`hotspotClass`) and the callout's shape (`leader`, a straight line from the
+anchor to a small square with the label above it, as the topo map's county marker; `dot`, the square's side) are
 all in `inspect`; see `INSPECT` in the source for the defaults. The inspection is skipped up to `breakpoint`,
 where the arrival view holds.
 
