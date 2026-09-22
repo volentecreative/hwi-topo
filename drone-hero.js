@@ -108,6 +108,7 @@
     settle: 0.04,              // the hotspot fades in over this much scroll after its window begins, and out over as much before it ends
     rows: '[data-inspect]',    // the feature rows, numbered 1.. in that attribute; the active one gets `activeClass`
     activeClass: 'is-active',
+    fillVar: '--inspect-fill',   // a CSS custom property written on each row: 0 before its window, 0-1 through it, 1 after — for a progress bar in the row; '' = none
     hotspotClass: '',          // CSS class(es) for the hotspot labels (e.g. the site's eyebrow style)
     leader: [-72, -36, -64],   // the leader line from the hotspot: out by (dx, dy) px, then a run of this many px (negative = leftward, the label at its end)
     inspectVar: '--drone-inspect'   // a CSS custom property the inspection's progress (0-1) is written to
@@ -335,7 +336,7 @@
         out[2] = A * (0.62 * Math.sin(u / W * 4.2 - ph + v / H * 1.3) + 0.38 * Math.sin(u / W * 7.5 + ph * 0.61 + 1.7)) * (0.15 + 0.85 * w) * (0.55 + 0.45 * u / W);
       };
       const d = [0, 0, 0];
-      flag = { mat: flagMat, update(t) {
+      flag = { mat: flagMat, objects: [clothMesh, lines], shown: true, update(t) {
         const p = cloth.attributes.position; for (let i = 0; i < p.count; i++) { const bx = clothBase[i * 3], by = clothBase[i * 3 + 1]; wave(bx - X0, by - Y0, t, d); p.setXYZ(i, bx + d[0], by + d[1], clothBase[i * 3 + 2] + d[2]); } p.needsUpdate = true; cloth.computeVertexNormals();
         const A_ = lines.geometry.attributes.pointA, B_ = lines.geometry.attributes.pointB, P_ = lines.geometry.attributes.position, n = uv.length / 4;
         for (let i = 0; i < n; i++) { const u0 = uv[i * 4], v0 = uv[i * 4 + 1], u1 = uv[i * 4 + 2], v1 = uv[i * 4 + 3];
@@ -391,7 +392,7 @@
     const readInspect = () => { if (!inspect || !endEl) return 0; const er = endEl.getBoundingClientRect(), hr = host.getBoundingClientRect(); return Math.min(1, Math.max(0, (hr.top - er.top) / Math.max(1, er.height - hr.height))); };
     // a CSS custom property on the host and the track, in steps of 0.01 and only when it changes: each write invalidates the track's
     // styles, and on phones a style change round a sticky element can make it re-sync mid-scroll — so not up to `breakpoint`
-    const varLast = {}; const setVar = (name, v) => { if (!name || isNarrow()) return; const s = v.toFixed(2); if (varLast[name] === s) return; varLast[name] = s; host.style.setProperty(name, s); if (trackEl) trackEl.style.setProperty(name, s); };
+    const varLast = {}; const setVar = (name, v, dp) => { if (!name || isNarrow()) return; const s = v.toFixed(dp || 2); if (varLast[name] === s) return; varLast[name] = s; host.style.setProperty(name, s); if (trackEl) trackEl.style.setProperty(name, s); };
     const isNarrow = () => !!(global.matchMedia && global.matchMedia('(max-width: ' + (+CONFIG.breakpoint || 991) + 'px)').matches);
     const endPoint = () => (isNarrow() && CONFIG.pointNarrow) || CONFIG.point || { x: 0.5, y: 0.5 };
     const zoomDist = z => motorH / (2 * Math.tan((+CONFIG.fov || 30) * D2R / 2) * Math.max(0.05, z || 0.36));
@@ -448,7 +449,8 @@
       const P = inspect.poses, W = inspect.windows, st = +inspect.settle || 0.04;
       const hots = P.map((p, k) => { const w = W[k]; if (!w || q < w[0] || q > w[1]) return 0; return Math.min(1, (q - w[0]) / st, (w[1] - q) / st); });
       let active = -1; P.forEach((p, k) => { const w = W[k]; if (w && q >= w[0] && (q < w[1] || (k === P.length - 1 && q <= w[1]))) active = k; });
-      return { hots, active };
+      const fills = P.map((p, k) => { const w = W[k]; if (!w) return 0; return Math.min(1, Math.max(0, (q - w[0]) / Math.max(1e-6, w[1] - w[0]))); });
+      return { hots, active, fills };
     }
     // the camera and everything that follows the scroll, for the current pos: the approach (its fades over its eased
     // progress e) running on into the inspection where there is one
@@ -458,7 +460,8 @@
       camTarget.copy(target).lerp(droneC, c.centre);
       aim(c.az * D2R, c.el * D2R, c.dist, c.px, c.py);
       fadeGrid(); motorColor(e);
-      if (flag) { const w = CONFIG.flagFade, f = Array.isArray(w) && w.length === 2 && w[1] > w[0] ? 1 - Math.min(1, Math.max(0, (e - w[0]) / (w[1] - w[0]))) : 1; flag.mat.uniforms.uOpacity.value = (+CONFIG.flagOpacity || 0.85) * f; edgeMat.uniforms.uFlagA.value = f; }
+      if (flag) { const w = CONFIG.flagFade, f = Array.isArray(w) && w.length === 2 && w[1] > w[0] ? 1 - Math.min(1, Math.max(0, (e - w[0]) / (w[1] - w[0]))) : 1; flag.mat.uniforms.uOpacity.value = (+CONFIG.flagOpacity || 0.85) * f; edgeMat.uniforms.uFlagA.value = f;
+        const show = f > 0.001; if (show !== flag.shown) { flag.shown = show; for (const o of flag.objects) o.visible = show; } }   // faded out: its cloth and lines leave the scene until it fades back
       if (rows === null && inspect) rows = rowEls();
       const s = useInsp && q > 0 ? inspectAt(q) : null;
       // the hotspots: the anchor projected to the frame, the leader out from it, the label at the leader's end
@@ -472,8 +475,9 @@
       // the feature rows
       const active = s ? s.active : -1;
       if (active !== activeRow && rows) { activeRow = active; for (const r of rows) r.el.classList.toggle(inspect.activeClass || 'is-active', r.n === active + 1); }
+      if (rows && inspect.fillVar) for (const r of rows) { const f = (s ? s.fills[r.n - 1] || 0 : 0).toFixed(2); if (r.fill !== f) { r.fill = f; r.el.style.setProperty(inspect.fillVar, f); } }
       dirty = true; shownPos = pos;
-      setVar(CONFIG.progressVar, e); if (inspect) setVar(inspect.inspectVar, q);
+      setVar(CONFIG.progressVar, e); if (inspect) setVar(inspect.inspectVar, q, 3);
     }
     const sized = { PR: 0, w: 0, h: 0 };
     function frame() {
@@ -526,7 +530,7 @@
         if (CONFIG.propSeconds > 0) { idle += dt * Math.PI * 2 / CONFIG.propSeconds; dirty = true; }
         if (Math.abs(spinTarget - spin) > 1e-4) { spin += (spinTarget - spin) * Math.min(1, dt * 6); if (Math.abs(spinTarget - spin) < 1e-4) spin = spinTarget; dirty = true; }
         for (const p of props) p.mesh.rotation.y = p.dir * (spin + idle) + p.phase;
-        if (flag) { flagT += dt; flag.update(flagT); dirty = true; }
+        if (flag && flag.shown) { flagT += dt; flag.update(flagT); dirty = true; }
       }
       if (!dirty || !visible || now - lastRender < frameMs - 2) return; dirty = false; lastRender = now; render();
     }
@@ -557,5 +561,5 @@
       .then(() => new Promise((res, rej) => new global.THREE.GLTFLoader().load(CONFIG.model || (HERE + 'heavy_lift_drone_model.glb'), res, undefined, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.17.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.18.0' };
 })(typeof window !== 'undefined' ? window : this);

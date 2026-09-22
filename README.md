@@ -362,7 +362,7 @@ The whole path is one curve — from the page's top, through the arrival and the
 straight on into the inspection without a stop, and the camera only eases to rest after the last pose. Each pose has a
 window of that scroll (`windows`; the first window's start is the end of the intro) in which its hotspot on
 the housing — a dot, a leader line and a label — shows and its feature row is active (`[data-inspect="1"]`..
-rows get `is-active`); the camera passes through the pose at the window's centre (or the pose's `at`), and a
+rows get `is-active`, and each row gets `--inspect-fill`, 0-1 through its window, for a progress bar); the camera passes through the pose at the window's centre (or the pose's `at`), and a
 pose can shift the look-at point toward the drone's centre (`centre`) or elsewhere in the frame (`point`). The
 poses, the windows, `settle`, the rows selector, the label class (`hotspotClass`) and the leader's shape are
 all in `inspect`; see `INSPECT` in the source for the defaults. The inspection is skipped up to `breakpoint`,
