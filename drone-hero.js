@@ -51,6 +51,12 @@
     startPointNarrow: null,            // … on narrow screens (null = the same)
     breakpoint: 991,
     progressVar: '--drone-progress',   // a CSS custom property the eased, damped progress (0-1) is written to on the track and the host, so the page's own layout can follow the move; '' = none
+    flag: false,               // an American flag hung behind the drone, in the same line work, waving slowly as if in a light breeze; true = on
+    flagWidth: 37,             // its width in the model's units (the drone spans about 7.5); height follows the 1:1.9 ratio
+    flagBottom: 2, flagZ: -22, flagX: 0,   // where its bottom edge hangs, how far back it is, and its centre's x
+    flagSway: 0.04,            // the wave's amplitude as a share of the flag's height
+    flagSeconds: 16,           // roughly one wave cycle every so many seconds
+    flagOpacity: 0.85,         // the stripes' and stars' opacity (their colour is the secondary)
     primaryIn: null,           // [from, to]: the window of the path's progress over which the motors go from the secondary colour to the primary (null = primary throughout)
     exitVar: '--drone-exit',           // a CSS custom property that runs 0-1 over the last viewport of the track's scroll, as the pinned canvas begins to leave with the track's end — for fading it out; '' = none
     // the start of the path: the whole aircraft, centred, level, from the front
@@ -274,6 +280,40 @@
         for (const y of [y0, y1]) for (let k = 0; k < N; k++) { const t0 = k / N * Math.PI * 2, t1 = (k + 1) / N * Math.PI * 2; a.push(c.x + Math.cos(t0) * r, y, c.z + Math.sin(t0) * r, c.x + Math.cos(t1) * r, y, c.z + Math.sin(t1) * r); } }
       if (a.length) scene.add(lineMesh(a, ribMat));
     }
+    // ---- the flag: a cloth hung from its top edge behind the drone, its faces occluding like the rest, the stripes,
+    // canton and stars drawn as lines on the surface; every point is displaced each frame by a slow, soft wave
+    let flag = null;
+    if (CONFIG.flag) {
+      const W = +CONFIG.flagWidth || 37, H = W / 1.9, X0 = (+CONFIG.flagX || 0) - W / 2, Y0 = +CONFIG.flagBottom || 0, Z0 = +CONFIG.flagZ || -22, A = H * (+CONFIG.flagSway || 0.04);
+      const NX = 48, NY = 26, cloth = new THREE.PlaneGeometry(W, H, NX, NY); cloth.translate(X0 + W / 2, Y0 + H / 2, Z0);
+      const clothBase = Float32Array.from(cloth.attributes.position.array); const clothMesh = solid(cloth, false); clothMesh.frustumCulled = false; tris += cloth.index.count / 3;
+      const seg = [], uv = [];   // the lines: base points as (u, v) on the flag, u from the hoist, v from the bottom
+      const add = (u0, v0, u1, v1) => { seg.push(0, 0, 0, 0, 0, 0); uv.push(u0, v0, u1, v1); };
+      const poly = (pts, n) => { for (let i = 0; i < pts.length; i++) { const a = pts[i], b = pts[(i + 1) % pts.length]; for (let k = 0; k < n; k++) add(a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n, a[0] + (b[0] - a[0]) * (k + 1) / n, a[1] + (b[1] - a[1]) * (k + 1) / n); } };
+      const cw = 0.76 * H, ch = 7 / 13 * H;   // the canton
+      for (let i = 1; i < 13; i++) { const v = H * i / 13, u0 = v > H - ch ? cw : 0; for (let k = 0; k < NX; k++) { const a = u0 + (W - u0) * k / NX, b = u0 + (W - u0) * (k + 1) / NX; add(a, v, b, v); } }
+      for (let k = 0; k < 20; k++) add(cw * k / 20, H - ch, cw * (k + 1) / 20, H - ch);   // the canton's bottom edge…
+      for (let k = 0; k < 12; k++) add(cw, H - ch + ch * k / 12, cw, H - ch + ch * (k + 1) / 12);   // … and its stripe-side edge
+      poly([[0, 0], [W, 0], [W, H], [0, H]], 24);   // the outer edge
+      const rs = 0.0308 * H, r2 = rs * 0.382; for (let row = 0; row < 9; row++) { const n = row % 2 ? 5 : 6; for (let col = 0; col < n; col++) {   // fifty stars, five points each
+        const cx = cw * (row % 2 ? (col + 1) / 6 : (col + 0.5) / 6) , cy = H - ch + ch * (9 - row - 0.5) / 9, pts = []; for (let k = 0; k < 10; k++) { const a = Math.PI / 2 + k * Math.PI / 5, r = k % 2 ? r2 : rs; pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]); } poly(pts, 1); } }
+      const flagMat = lineMaterial(CONFIG.secondary, false, +CONFIG.flagOpacity || 0.85); lineMats.push(flagMat); const lines = lineMesh(seg, flagMat); scene.add(lines);
+      const wave = (u, v, t, out) => {   // the displacement of the point (u, v) at time t: fixed along the top edge, growing toward the bottom, slow crossing waves, and a lazy sideways sway
+        const hang = 1 - v / H, w = hang * hang, ph = t * Math.PI * 2 / (+CONFIG.flagSeconds || 16);
+        out[0] = A * 0.3 * Math.sin(ph * 0.37 + v / H) * hang; out[1] = 0;
+        out[2] = A * (0.62 * Math.sin(u / W * 4.2 - ph + v / H * 1.3) + 0.38 * Math.sin(u / W * 7.5 + ph * 0.61 + 1.7)) * (0.15 + 0.85 * w) * (0.55 + 0.45 * u / W);
+      };
+      const d = [0, 0, 0];
+      flag = { update(t) {
+        const p = cloth.attributes.position; for (let i = 0; i < p.count; i++) { const bx = clothBase[i * 3], by = clothBase[i * 3 + 1]; wave(bx - X0, by - Y0, t, d); p.setXYZ(i, bx + d[0], by + d[1], clothBase[i * 3 + 2] + d[2]); } p.needsUpdate = true; cloth.computeVertexNormals();
+        const A_ = lines.geometry.attributes.pointA, B_ = lines.geometry.attributes.pointB, P_ = lines.geometry.attributes.position, n = uv.length / 4;
+        for (let i = 0; i < n; i++) { const u0 = uv[i * 4], v0 = uv[i * 4 + 1], u1 = uv[i * 4 + 2], v1 = uv[i * 4 + 3];
+          wave(u0, v0, t, d); const ax = X0 + u0 + d[0], ay = Y0 + v0, az = Z0 + d[2] + 0.04; wave(u1, v1, t, d); const bx = X0 + u1 + d[0], by = Y0 + v1, bz = Z0 + d[2] + 0.04;
+          for (let k = 0; k < 4; k++) { const j = i * 4 + k; A_.setXYZ(j, ax, ay, az); B_.setXYZ(j, bx, by, bz); P_.setXYZ(j, ax, ay, az); } }
+        A_.needsUpdate = B_.needsUpdate = P_.needsUpdate = true;
+      } };
+      flag.update(0);
+    }
     // ---- the two ends of the path
     // the camera aims at the centre of the ribbed casing (the motor's tallest part), not of the whole motor with its shaft, so the casing sits where `point` says
     const target = new THREE.Vector3(); (coils[key] ? coils[key].box : motorBox).getCenter(target);
@@ -341,7 +381,7 @@
       const rw = Math.round((T.w + 2 * T.g) * S), rh = Math.round((T.h + 2 * T.g) * S); rt.setSize(rw, rh); edgeMat.uniforms.uRes.value.set(rw, rh);
       edgeMat.uniforms.uWidth.value = Math.max(0.5, (+CONFIG.lineWidth || 1) * S * PR / 1.5);
       ribMat.uniforms.uWidth.value = Math.max(0.3, (+CONFIG.ribWidth || 1) * PR); gridMat.uniforms.uWidth.value = Math.max(0.3, (+CONFIG.gridWidth || 1) * PR); ribMat.uniforms.uOpacity.value = +CONFIG.ribOpacity;
-      for (const m of lineMats) { m.uniforms.uRes.value.set(W, H); m.uniforms.uHalf.value = m.uniforms.uWidth.value / 2 + 1; }
+      for (const m of lineMats) { if (m !== ribMat && m !== gridMat) m.uniforms.uWidth.value = Math.max(0.3, (+CONFIG.gridWidth || 1) * PR); m.uniforms.uRes.value.set(W, H); m.uniforms.uHalf.value = m.uniforms.uWidth.value / 2 + 1; }
       if (!trackEl) progress = progressTarget = 1; placeCam(ease(progress)); shownProgress = progress;
     }
     function render() {
@@ -364,7 +404,7 @@
       for (const m of solids) m.material = m.userData.faceMat; for (const l of lines) l.visible = true;
     }
     // ---- the loop: the camera follows the scroll through the track, damped; the props turn with the scroll
-    let dirty = true, alive = true, visible = true, lastT = performance.now(), spin = 0, spinTarget = 0, idle = 0;
+    let dirty = true, alive = true, visible = true, lastT = performance.now(), spin = 0, spinTarget = 0, idle = 0, flagT = 0;
     const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
     const onScroll = () => { spinTarget = (global.scrollY || 0) / 1000 * (+CONFIG.propScroll || 0) * Math.PI * 2; progressTarget = trackEl ? readProgress() : 1;
       if (trackEl && CONFIG.exitVar) { const tr = trackEl.getBoundingClientRect(), hr = host.getBoundingClientRect(); const ex = Math.min(1, Math.max(0, 1 - (tr.bottom - hr.top) / Math.max(1, hr.height))).toFixed(4); host.style.setProperty(CONFIG.exitVar, ex); trackEl.style.setProperty(CONFIG.exitVar, ex); } };
@@ -379,6 +419,7 @@
         if (CONFIG.propSeconds > 0) { idle += dt * Math.PI * 2 / CONFIG.propSeconds; dirty = true; }
         if (Math.abs(spinTarget - spin) > 1e-4) { spin += (spinTarget - spin) * Math.min(1, dt * 6); if (Math.abs(spinTarget - spin) < 1e-4) spin = spinTarget; dirty = true; }
         for (const p of props) p.mesh.rotation.y = p.dir * (spin + idle) + p.phase;
+        if (flag) { flagT += dt; flag.update(flagT); dirty = true; }
       }
       if (!dirty || !visible) return; dirty = false; render();
     }
@@ -387,7 +428,7 @@
     function applyColors() {
       const next = {}; for (const k of COLOR_KEYS) next[k] = resolveColor(host, RAW[k]);
       const sig = JSON.stringify(next); if (sig === lastColors) return; lastColors = sig; Object.assign(CONFIG, next);
-      host.style.background = CONFIG.background; faceMat.color.set(CONFIG.face); gridMat.uniforms.uColor.value.set(CONFIG.gridColor); for (const m of lineMats) m.uniforms.uBg.value.set(CONFIG.face); edgeMat.uniforms.uC2.value.set(CONFIG.secondary); motorColor(ease(progress)); if (!grid) buildGrid(); dirty = true;
+      host.style.background = CONFIG.background; faceMat.color.set(CONFIG.face); gridMat.uniforms.uColor.value.set(CONFIG.gridColor); for (const m of lineMats) { m.uniforms.uBg.value.set(CONFIG.face); if (m !== ribMat && m !== gridMat) m.uniforms.uColor.value.set(CONFIG.secondary); } edgeMat.uniforms.uC2.value.set(CONFIG.secondary); motorColor(ease(progress)); if (!grid) buildGrid(); dirty = true;
     }
     applyColors();
     const themeWatch = setInterval(() => { if (alive) applyColors(); }, 400);
@@ -409,5 +450,5 @@
       .then(() => new Promise((res, rej) => new global.THREE.GLTFLoader().load(CONFIG.model || (HERE + 'heavy_lift_drone_model.glb'), res, undefined, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.10.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.11.0' };
 })(typeof window !== 'undefined' ? window : this);

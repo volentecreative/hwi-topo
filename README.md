@@ -397,7 +397,11 @@ and `gridFade` (0.3; the grid also fades out toward its own edge, all round), `g
 heights from the drone's centre) and `gridWidth` (1px); `ribs`
 (24 per motor housing, along its straight wall, with a rim line round each end of the wall), `ribWidth` (1px)
 and `ribOpacity` (0.8); `primaryIn` (`[from, to]`: the window of the path's progress
-over which the motors go from the secondary colour to the primary; null = primary throughout); `lineWidth` (1px), `depthEdge` (0.012) and
+over which the motors go from the secondary colour to the primary; null = primary throughout);
+`flag` (false: an American flag hung behind the drone in the same line work, its cloth occluding like the
+rest and its stripes, canton and stars drawn on the surface, waving slowly as if in a light breeze and moving
+in perspective with the camera), with `flagWidth` (37 model units), `flagBottom` (2), `flagZ` (−22), `flagX`
+(0), `flagSway` (0.04 of its height), `flagSeconds` (16 per wave) and `flagOpacity` (0.85); `lineWidth` (1px), `depthEdge` (0.012) and
 `normalEdge` (0.25);
 `supersample` (2: the edge pass runs at twice the canvas resolution and averages, so the lines are
 antialiased; the faces, ribs and grid are multisampled), `pixelBudget` (8 million pixels: the most the
