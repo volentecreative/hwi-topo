@@ -93,11 +93,13 @@
     // round it, `height` runs 0-1 from the bottom of the wall to the top (beyond either for the cap or the mount),
     // `radius` is a multiple of the housing's radius. The label is the hotspot's caption
     // the camera passes through each pose at `at` (of the section's scroll; the centre of its window when not given) on
-    // one smooth curve from the arrival view: it never stops between poses, only eases to rest after the last
+    // one smooth curve from the arrival view: it never stops between poses, only eases to rest after the last. A pose
+    // may also move the look-at point from the motor's housing toward the drone's centre (`centre`, 0-1) and put it
+    // elsewhere in the frame (`point`, as the top-level one); the anchor is the hotspot's place on the housing
     poses: [
-      { azimuth: -10, elevation: -6, zoom: 0.36, anchor: { angle: -42, height: 0.62, radius: 1 }, label: '01' },
-      { azimuth: 40, elevation: 2, zoom: 0.38, anchor: { angle: 8, height: -0.08, radius: 0.92 }, label: '02' },
-      { azimuth: 96, elevation: 14, zoom: 0.36, anchor: { angle: 62, height: 1.14, radius: 0.55 }, label: '03' }
+      { azimuth: -40, elevation: -12, zoom: 0.26, anchor: { angle: -42, height: 0.62, radius: 1 }, label: '01' },   // from below and a little round to the left: the whole aircraft
+      { azimuth: -90, elevation: 2, zoom: 0.24, anchor: { angle: -70, height: 0.5, radius: 1 }, label: '02' },       // the profile, from the drone's left, dead level
+      { azimuth: -180, elevation: 90, zoom: 0.085, centre: 1, anchor: { angle: -135, height: 1.14, radius: 0.55 }, label: '03' }   // straight down, the drone centred, its nose up
     ],
     windows: [[0.4, 0.6], [0.6, 0.8], [0.8, 1]],   // of the section's scroll: each pose's window, where its hotspot shows and its row is active; before the first is the intro
     settle: 0.04,              // the hotspot fades in over this much scroll after its window begins, and out over as much before it ends
@@ -389,6 +391,7 @@
     // the camera at a heading (radians) and distance from camTarget, with the target at (px, py) of the frame
     function aim(az, el, dist, px, py) {
       const dir = new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
+      camera.up.set(-Math.sin(az) * Math.sin(el), Math.cos(el), -Math.cos(az) * Math.sin(el));   // the roll stays continuous up to straight overhead
       camera.position.copy(camTarget).add(dir.multiplyScalar(dist)); camera.lookAt(camTarget);
       camera.near = Math.max(0.02, dist * 0.05); camera.far = dist + droneR * 4 + flagReach; edgeMat.uniforms.uNear.value = camera.near; edgeMat.uniforms.uFar.value = camera.far; for (const m of lineMats) m.uniforms.uNear.value = camera.near;
       camera.setViewOffset(w, h, (0.5 - px) * w, (0.5 - py) * h, w, h); camera.updateProjectionMatrix(); camera.updateMatrixWorld();
@@ -412,10 +415,10 @@
       return new THREE.Vector3(hs.c.x + Math.sin(ang) * r, hs.y0 + (a.height == null ? 0.5 : +a.height) * (hs.y1 - hs.y0), hs.c.z + Math.cos(ang) * r); };
     const rowEls = () => { if (!inspect || !inspect.rows) return []; const out = []; document.querySelectorAll(inspect.rows).forEach(el => { const n = parseInt(el.getAttribute('data-inspect'), 10); if (n > 0) out.push({ el, n }); }); return out; };
     let rows = null, activeRow = -1;
-    // a monotone cubic through (ts[i], vs[i]), flat at both ends: no overshoot, no stop between the knots
+    // a monotone cubic through (ts[i], vs[i]), steady at the start and flat at the end: no overshoot, no stop between the knots
     function spline(ts, vs, q) {
       const n = ts.length; if (q <= ts[0]) return vs[0]; if (q >= ts[n - 1]) return vs[n - 1];
-      const d = [], m = [0]; for (let i = 0; i + 1 < n; i++) d.push((vs[i + 1] - vs[i]) / (ts[i + 1] - ts[i]));
+      const d = []; for (let i = 0; i + 1 < n; i++) d.push((vs[i + 1] - vs[i]) / (ts[i + 1] - ts[i])); const m = [d[0]];
       for (let i = 1; i + 1 < n; i++) { const a = d[i - 1], b = d[i]; if (a * b <= 0) { m.push(0); continue; } const g = (vs[i + 1] - vs[i - 1]) / (ts[i + 1] - ts[i - 1]), lim = 3 * Math.min(Math.abs(a), Math.abs(b)); m.push(Math.sign(g) * Math.min(Math.abs(g), lim)); }
       m.push(0); let i = 0; while (q > ts[i + 1]) i++;
       const hh = ts[i + 1] - ts[i], t = (q - ts[i]) / hh, t2 = t * t, t3 = t2 * t;
@@ -425,15 +428,15 @@
     // hotspots' opacities and which feature is active
     function inspectAt(q) {
       const P = inspect.poses, W = inspect.windows, st = +inspect.settle || 0.04;
-      const ts = [0], az = [azimuth()], el = [+CONFIG.elevation || 0], lz = [Math.log(+CONFIG.zoom || 0.36)];
-      P.forEach((p, k) => { const w = W[k] || [1, 1], t = p.at == null ? (w[0] + w[1]) / 2 : +p.at; if (t <= ts[ts.length - 1]) return; ts.push(t); az.push(+p.azimuth); el.push(+p.elevation); lz.push(Math.log(+p.zoom || 0.36)); });
+      const pe = endPoint(), ts = [0], az = [azimuth()], el = [+CONFIG.elevation || 0], lz = [Math.log(+CONFIG.zoom || 0.36)], ce = [0], px = [pe.x], py = [pe.y];
+      P.forEach((p, k) => { const w = W[k] || [1, 1], t = p.at == null ? (w[0] + w[1]) / 2 : +p.at; if (t <= ts[ts.length - 1]) return; ts.push(t); az.push(+p.azimuth); el.push(+p.elevation); lz.push(Math.log(+p.zoom || 0.36)); ce.push(+p.centre || 0); px.push(p.point ? +p.point.x : pe.x); py.push(p.point ? +p.point.y : pe.y); });
       const hots = P.map((p, k) => { const w = W[k]; if (!w || q < w[0] || q > w[1]) return 0; return Math.min(1, (q - w[0]) / st, (w[1] - q) / st); });
       let active = -1; P.forEach((p, k) => { const w = W[k]; if (w && q >= w[0] && (q < w[1] || (k === P.length - 1 && q <= w[1]))) active = k; });
-      return { az: spline(ts, az, q), el: spline(ts, el, q), zoom: Math.exp(spline(ts, lz, q)), hots, active };
+      return { az: spline(ts, az, q), el: spline(ts, el, q), zoom: Math.exp(spline(ts, lz, q)), centre: spline(ts, ce, q), px: spline(ts, px, q), py: spline(ts, py, q), hots, active };
     }
     function placeInspect(q) {
-      const s = inspectAt(q), pe = endPoint(); camTarget.copy(target);
-      aim(s.az * D2R, s.el * D2R, zoomDist(s.zoom), pe.x, pe.y);
+      const s = inspectAt(q); camTarget.copy(target).lerp(droneC, s.centre);
+      aim(s.az * D2R, s.el * D2R, zoomDist(s.zoom), s.px, s.py);
       fadeGrid(); motorColor(1);
       if (flag) { const w = CONFIG.flagFade, f = Array.isArray(w) && w.length === 2 ? 0 : 1; flag.mat.uniforms.uOpacity.value = (+CONFIG.flagOpacity || 0.85) * f; edgeMat.uniforms.uFlagA.value = f; }
       // the hotspots: the anchor projected to the frame, the leader out from it, the label at the leader's end
