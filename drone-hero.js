@@ -110,6 +110,7 @@
     settle: 0.04,              // the hotspot fades in over this much scroll after its window begins, and out over as much before it ends
     rows: '[data-inspect]',    // the feature rows, numbered 1.. in that attribute; the active one gets `activeClass`
     activeClass: 'is-active',
+    click: false,              // true: clicking a row scrolls the page (smoothly) to that row's window, so the camera settles on its pose
     reachEvent: 'drone:reach',     // dispatched (bubbling) on a row as the scroll reaches its window, and…
     unreachEvent: 'drone:unreach', // … on the way back up past its start; '' = none. The page's own scripts can start things on them
     fillVar: '--inspect-fill',   // a CSS custom property written on each row: 0 before its window, 0-1 through it, 1 after — for a progress bar in the row; '' = none
@@ -425,7 +426,12 @@
     }
     const anchorOf = p => { const hs = coils[key], a = p.anchor || {}; if (!hs) return target.clone(); const ang = (+a.angle || 0) * D2R, r = hs.r * (a.radius == null ? 1 : +a.radius);
       return new THREE.Vector3(hs.c.x + Math.sin(ang) * r, hs.y0 + (a.height == null ? 0.5 : +a.height) * (hs.y1 - hs.y0), hs.c.z + Math.cos(ang) * r); };
-    const rowEls = () => { if (!inspect || !inspect.rows) return []; const out = []; document.querySelectorAll(inspect.rows).forEach(el => { const n = parseInt(el.getAttribute('data-inspect'), 10); if (n > 0) out.push({ el, n }); }); return out; };
+    const rowEls = () => { if (!inspect || !inspect.rows) return []; const out = []; document.querySelectorAll(inspect.rows).forEach(el => { const n = parseInt(el.getAttribute('data-inspect'), 10); if (n > 0) out.push({ el, n }); });
+      if (inspect.click) for (const r of out) { const go = () => scrollToRow(r.n); r.el.addEventListener('click', go); r.el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } }); }
+      return out; };
+    // scroll the page to the middle of a row's window (where the camera passes through its pose)
+    function scrollToRow(n) { const w = inspect.windows[n - 1]; if (!w || !endEl || isNarrow()) return; const q = (w[0] + w[1]) / 2, er = endEl.getBoundingClientRect(), hr = host.getBoundingClientRect();
+      global.scrollTo({ top: Math.round((global.scrollY || 0) + er.top - hr.top + q * Math.max(0, er.height - hr.height)), behavior: 'smooth' }); }
     let rows = null, activeRow = -1;
     // a monotone cubic through (ts[i], vs[i]), flat at both ends: no overshoot, and between the knots it never stops
     function spline(ts, vs, q) {
@@ -567,5 +573,5 @@
       .then(() => new Promise((res, rej) => new global.THREE.GLTFLoader().load(CONFIG.model || (HERE + 'heavy_lift_drone_model.glb'), res, undefined, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.20.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.21.0' };
 })(typeof window !== 'undefined' ? window : this);
