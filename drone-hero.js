@@ -282,9 +282,10 @@
     }
     // ---- the flag: a cloth hung from its top edge behind the drone, its faces occluding like the rest, the stripes,
     // canton and stars drawn as lines on the surface; every point is displaced each frame by a slow, soft wave
-    let flag = null;
+    let flag = null, flagReach = 0;   // how far the scene extends behind the drone because of the flag, for the far plane
     if (CONFIG.flag) {
       const W = +CONFIG.flagWidth || 37, H = W / 1.9, X0 = (+CONFIG.flagX || 0) - W / 2, Y0 = +CONFIG.flagBottom || 0, Z0 = +CONFIG.flagZ || -22, A = H * (+CONFIG.flagSway || 0.04);
+      flagReach = Math.abs(Z0) + Math.hypot(W, H);
       const NX = 48, NY = 26, cloth = new THREE.PlaneGeometry(W, H, NX, NY); cloth.translate(X0 + W / 2, Y0 + H / 2, Z0);
       const clothBase = Float32Array.from(cloth.attributes.position.array); const clothMesh = solid(cloth, false); clothMesh.frustumCulled = false; tris += cloth.index.count / 3;
       const seg = [], uv = [];   // the lines: base points as (u, v) on the flag, u from the hoist, v from the bottom
@@ -363,7 +364,7 @@
       camTarget.copy(droneC).lerp(target, e);
       const dir = new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
       camera.position.copy(camTarget).add(dir.multiplyScalar(dist)); camera.lookAt(camTarget);
-      camera.near = Math.max(0.02, dist * 0.05); camera.far = dist + droneR * 4; edgeMat.uniforms.uNear.value = camera.near; edgeMat.uniforms.uFar.value = camera.far; for (const m of lineMats) m.uniforms.uNear.value = camera.near;
+      camera.near = Math.max(0.02, dist * 0.05); camera.far = dist + droneR * 4 + flagReach; edgeMat.uniforms.uNear.value = camera.near; edgeMat.uniforms.uFar.value = camera.far; for (const m of lineMats) m.uniforms.uNear.value = camera.near;
       const narrow = global.matchMedia && global.matchMedia('(max-width: ' + (+CONFIG.breakpoint || 991) + 'px)').matches;
       const pe = (narrow && CONFIG.pointNarrow) || CONFIG.point || { x: 0.5, y: 0.5 }, ps = (narrow && CONFIG.startPointNarrow) || CONFIG.startPoint || { x: 0.5, y: 0.5 }, px = ps.x + (pe.x - ps.x) * e, py = ps.y + (pe.y - ps.y) * e;
       camera.setViewOffset(w, h, (0.5 - px) * w, (0.5 - py) * h, w, h); camera.updateProjectionMatrix(); camera.updateMatrixWorld();
@@ -450,5 +451,5 @@
       .then(() => new Promise((res, rej) => new global.THREE.GLTFLoader().load(CONFIG.model || (HERE + 'heavy_lift_drone_model.glb'), res, undefined, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.11.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.11.1' };
 })(typeof window !== 'undefined' ? window : this);
