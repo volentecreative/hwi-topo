@@ -59,7 +59,11 @@
     flagOpacity: 0.85,         // the stripes' and stars' opacity (their colour is the secondary)
     flagFade: [0.5, 0.85],     // [from, to]: the window of the path's progress over which the flag fades away, so the close-up never shows its edge cut across the frame; null = never
     primaryIn: null,           // [from, to]: the window of the path's progress over which the motors go from the secondary colour to the primary (null = primary throughout)
-    exitVar: '--drone-exit',           // a CSS custom property that runs 0-1 over the last viewport of the track's scroll, as the pinned canvas begins to leave with the track's end — for fading it out; '' = none
+    exitVar: '--drone-exit',
+    // the inspection: once the path has arrived (the runEnd section at the top), that section's own scroll steps the
+    // camera through three resting poses round the motor, each with a hotspot on the motor and a feature row made
+    // active. null = none. See INSPECT for the defaults; pass any subset to change them
+    inspect: null,           // a CSS custom property that runs 0-1 over the last viewport of the track's scroll, as the pinned canvas begins to leave with the track's end — for fading it out; '' = none
     // the start of the path: the whole aircraft, centred, level, from the front
     startAzimuth: 0,           // camera heading at the start; 0 = the front view
     startElevation: 0,         // degrees above the horizon at the start; 0 = dead level
@@ -83,6 +87,25 @@
     pixelRatioCap: 2
   };
   const COLOR_KEYS = ['primary', 'secondary', 'gridColor', 'face', 'background'];
+  const INSPECT = {
+    // the three poses: heading and height about the motor (degrees, the same convention as `azimuth`/`elevation`),
+    // the housing's height as a share of the frame, and where the hotspot sits on the housing: `angle` is a heading
+    // round it, `height` runs 0-1 from the bottom of the wall to the top (beyond either for the cap or the mount),
+    // `radius` is a multiple of the housing's radius. The label is the hotspot's caption
+    poses: [
+      { azimuth: -10, elevation: -6, zoom: 0.36, anchor: { angle: -42, height: 0.62, radius: 1 }, label: '01' },
+      { azimuth: 40, elevation: 2, zoom: 0.38, anchor: { angle: 8, height: -0.08, radius: 0.92 }, label: '02' },
+      { azimuth: 96, elevation: 14, zoom: 0.36, anchor: { angle: 62, height: 1.14, radius: 0.55 }, label: '03' }
+    ],
+    holds: [[0.15, 0.35], [0.45, 0.65], [0.75, 0.95]],   // of the section's scroll: where each pose rests; the moves run between them
+    lead: 0.1,                 // the move from the arrival view into the first pose runs over this much scroll before its hold
+    settle: 0.05,              // the hotspot fades in over this much scroll after a hold begins, and out over as much before it ends
+    rows: '[data-inspect]',    // the feature rows, numbered 1.. in that attribute; the active one gets `activeClass`
+    activeClass: 'is-active',
+    hotspotClass: '',          // CSS class(es) for the hotspot labels (e.g. the site's eyebrow style)
+    leader: [-72, -36, -64],   // the leader line from the hotspot: out by (dx, dy) px, then a run of this many px (negative = leftward, the label at its end)
+    inspectVar: '--drone-inspect'   // a CSS custom property the inspection's progress (0-1) is written to
+  };
 
   function resolveColor(host, v) {
     if (typeof v !== 'string') return v;
@@ -350,26 +373,90 @@
     }
     // ---- the path: spherical about a target that slides from the drone's centre to the motor, distance in log
     // space, heading and height easing between the two ends, the framing point too — one camera, really moving
-    let w = 1, h = 1, progress = 0, progressTarget = 0, shownProgress = -1; const camTarget = droneC.clone(); const T = { nx: 1, ny: 1, w: 1, h: 1, g: 3, PR: 1, S: 1, W: 1, H: 1 };   // the edge pass's tiling
+    let w = 1, h = 1, progress = 0, progressTarget = 0, shownProgress = -1, insp = 0, inspTarget = 0, shownInsp = -1; const camTarget = droneC.clone(); const T = { nx: 1, ny: 1, w: 1, h: 1, g: 3, PR: 1, S: 1, W: 1, H: 1 };   // the edge pass's tiling
     const trackEl = (() => { const t = CONFIG.track; if (!t) return null; if (t.nodeType) return t; if (typeof t === 'string' && t.startsWith('closest:')) return host.closest(t.slice(8)); return document.querySelector(t); })();
     const endEl = trackEl && CONFIG.runEnd ? (typeof CONFIG.runEnd === 'string' ? trackEl.querySelector(CONFIG.runEnd) : CONFIG.runEnd) : null;
     const readProgress = () => { if (!trackEl) return 1; const r = trackEl.getBoundingClientRect();
       if (endEl) { const er = endEl.getBoundingClientRect(), hr = host.getBoundingClientRect(); return Math.min(1, Math.max(0, 1 - (er.top - hr.top) / Math.max(1, er.top - r.top))); }   // done when the end element reaches the canvas's top
       const run = Math.max(1, r.height - h); return Math.min(1, Math.max(0, -r.top / run)); };
-    function placeCam(e) {
-      const fov = (+CONFIG.fov || 30) * D2R, a = w / h, hfov = 2 * Math.atan(Math.tan(fov / 2) * a);
-      const d0 = fitDistance(azimuth0(), +CONFIG.startElevation || 0, fov, a) * (+CONFIG.margin || 1.25);
-      const d1 = motorH / (2 * Math.tan(fov / 2) * Math.max(0.05, +CONFIG.zoom || 0.36));
-      const dist = Math.exp(Math.log(d0) + (Math.log(d1) - Math.log(d0)) * e);
-      const az = (azimuth0() + (azimuth() - azimuth0()) * e) * D2R, el = ((+CONFIG.startElevation || 0) + ((+CONFIG.elevation || 0) - (+CONFIG.startElevation || 0)) * e) * D2R;
-      camTarget.copy(droneC).lerp(target, e);
+    // the inspection's progress: how far the end section has scrolled past the canvas's top, over its extra height
+    const inspect = CONFIG.inspect ? Object.assign({}, INSPECT, CONFIG.inspect) : null;
+    const readInspect = () => { if (!inspect || !endEl) return 0; const er = endEl.getBoundingClientRect(), hr = host.getBoundingClientRect(); return Math.min(1, Math.max(0, (hr.top - er.top) / Math.max(1, er.height - hr.height))); };
+    const isNarrow = () => !!(global.matchMedia && global.matchMedia('(max-width: ' + (+CONFIG.breakpoint || 991) + 'px)').matches);
+    const endPoint = () => (isNarrow() && CONFIG.pointNarrow) || CONFIG.point || { x: 0.5, y: 0.5 };
+    const zoomDist = z => motorH / (2 * Math.tan((+CONFIG.fov || 30) * D2R / 2) * Math.max(0.05, z || 0.36));
+    // the camera at a heading (radians) and distance from camTarget, with the target at (px, py) of the frame
+    function aim(az, el, dist, px, py) {
       const dir = new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
       camera.position.copy(camTarget).add(dir.multiplyScalar(dist)); camera.lookAt(camTarget);
       camera.near = Math.max(0.02, dist * 0.05); camera.far = dist + droneR * 4 + flagReach; edgeMat.uniforms.uNear.value = camera.near; edgeMat.uniforms.uFar.value = camera.far; for (const m of lineMats) m.uniforms.uNear.value = camera.near;
-      const narrow = global.matchMedia && global.matchMedia('(max-width: ' + (+CONFIG.breakpoint || 991) + 'px)').matches;
-      const pe = (narrow && CONFIG.pointNarrow) || CONFIG.point || { x: 0.5, y: 0.5 }, ps = (narrow && CONFIG.startPointNarrow) || CONFIG.startPoint || { x: 0.5, y: 0.5 }, px = ps.x + (pe.x - ps.x) * e, py = ps.y + (pe.y - ps.y) * e;
       camera.setViewOffset(w, h, (0.5 - px) * w, (0.5 - py) * h, w, h); camera.updateProjectionMatrix(); camera.updateMatrixWorld();
+    }
+    // ---- the inspection: the camera steps between resting poses round the motor as the end section scrolls
+    let hot = null;   // the hotspots' overlay: { svg, items: [{ g, dot, ring, path, label }] }
+    function buildHotspots() {
+      if (!inspect) return; const NS = 'http://www.w3.org/2000/svg', svg = document.createElementNS(NS, 'svg');
+      Object.assign(svg.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', overflow: 'visible', pointerEvents: 'none' });
+      const items = inspect.poses.map(p => { const g = document.createElementNS(NS, 'g'); g.style.opacity = '0';
+        const ring = document.createElementNS(NS, 'circle'); ring.setAttribute('r', '8'); ring.setAttribute('fill', 'none'); ring.setAttribute('stroke-width', '1'); ring.setAttribute('opacity', '0.7');
+        const dot = document.createElementNS(NS, 'circle'); dot.setAttribute('r', '2.5');
+        const path = document.createElementNS(NS, 'path'); path.setAttribute('fill', 'none'); path.setAttribute('stroke-width', '1');
+        g.append(ring, dot, path); svg.appendChild(g);
+        const label = document.createElement('div'); if (inspect.hotspotClass) label.className = inspect.hotspotClass; label.textContent = p.label || '';
+        Object.assign(label.style, { position: 'absolute', left: '0', top: '0', whiteSpace: 'nowrap', pointerEvents: 'none', opacity: '0', margin: '0' }); host.appendChild(label);
+        return { g, dot, ring, path, label }; });
+      host.appendChild(svg); hot = { svg, items };
+    }
+    const anchorOf = p => { const hs = coils[key], a = p.anchor || {}; if (!hs) return target.clone(); const ang = (+a.angle || 0) * D2R, r = hs.r * (a.radius == null ? 1 : +a.radius);
+      return new THREE.Vector3(hs.c.x + Math.sin(ang) * r, hs.y0 + (a.height == null ? 0.5 : +a.height) * (hs.y1 - hs.y0), hs.c.z + Math.cos(ang) * r); };
+    const rowEls = () => { if (!inspect || !inspect.rows) return []; const out = []; document.querySelectorAll(inspect.rows).forEach(el => { const n = parseInt(el.getAttribute('data-inspect'), 10); if (n > 0) out.push({ el, n }); }); return out; };
+    let rows = null, activeRow = -1;
+    // where the camera is at this much of the inspection: the pose, its heading eased between rests, the hotspots'
+    // opacities and which feature is active
+    function inspectAt(q) {
+      const P = inspect.poses, H = inspect.holds, lead = +inspect.lead || 0.1, st = +inspect.settle || 0.05;
+      const intro = { azimuth: azimuth(), elevation: +CONFIG.elevation || 0, zoom: +CONFIG.zoom || 0.36 };
+      let from = intro, to = intro, t = 0;
+      if (q < H[0][0] - lead) { from = to = intro; }
+      else if (q < H[0][0]) { from = intro; to = P[0]; t = (q - (H[0][0] - lead)) / lead; }
+      else { from = to = P[P.length - 1];
+        for (let k = 0; k < P.length; k++) { if (q <= H[k][1]) { from = to = P[k]; break; } if (k + 1 < P.length && q < H[k + 1][0]) { from = P[k]; to = P[k + 1]; t = (q - H[k][1]) / (H[k + 1][0] - H[k][1]); break; } } }
+      const u = ease(Math.min(1, Math.max(0, t)));
+      const az = from.azimuth + (to.azimuth - from.azimuth) * u, el = from.elevation + (to.elevation - from.elevation) * u, zoom = Math.exp(Math.log(from.zoom) + (Math.log(to.zoom) - Math.log(from.zoom)) * u);
+      const hots = P.map((p, k) => { const [a, b] = H[k]; if (q < a || q > b) return 0; return Math.min(1, (q - a) / st, (b - q) / st); });
+      let active = -1; for (let k = 0; k < P.length; k++) { const a = k === 0 ? H[0][0] - lead / 2 : (H[k - 1][1] + H[k][0]) / 2, b = k + 1 < P.length ? (H[k][1] + H[k + 1][0]) / 2 : 2; if (q >= a && q < b) active = k; }
+      return { az, el, zoom, hots, active };
+    }
+    function placeInspect(q) {
+      const s = inspectAt(q), pe = endPoint(); camTarget.copy(target);
+      aim(s.az * D2R, s.el * D2R, zoomDist(s.zoom), pe.x, pe.y);
+      fadeGrid(); motorColor(1);
+      if (flag) { const w = CONFIG.flagFade, f = Array.isArray(w) && w.length === 2 ? 0 : 1; flag.mat.uniforms.uOpacity.value = (+CONFIG.flagOpacity || 0.85) * f; edgeMat.uniforms.uFlagA.value = f; }
+      // the hotspots: the anchor projected to the frame, the leader out from it, the label at the leader's end
+      if (hot) { const [dx, dy, run] = inspect.leader || [-64, -40, -56], v = new THREE.Vector3();
+        inspect.poses.forEach((p, k) => { const it = hot.items[k], o = s.hots[k]; it.g.style.opacity = o.toFixed(3); it.label.style.opacity = o.toFixed(3); if (o <= 0) return;
+          v.copy(anchorOf(p)).project(camera); const x = (v.x + 1) / 2 * w, y = (1 - v.y) / 2 * h, ex = x + dx, ey = y + dy, lx = ex + run;
+          it.dot.setAttribute('cx', x.toFixed(1)); it.dot.setAttribute('cy', y.toFixed(1)); it.ring.setAttribute('cx', x.toFixed(1)); it.ring.setAttribute('cy', y.toFixed(1));
+          it.path.setAttribute('d', 'M' + x.toFixed(1) + ' ' + y.toFixed(1) + ' L' + ex.toFixed(1) + ' ' + ey.toFixed(1) + ' L' + lx.toFixed(1) + ' ' + ey.toFixed(1));
+          it.label.style.transform = 'translate(' + (run < 0 ? 'calc(' + (lx - 6).toFixed(1) + 'px - 100%)' : (lx + 6).toFixed(1) + 'px') + ', calc(' + ey.toFixed(1) + 'px - 50%))'; }); }
+      // the feature rows
+      if (rows === null) rows = rowEls();
+      if (s.active !== activeRow) { activeRow = s.active; for (const r of rows) r.el.classList.toggle(inspect.activeClass || 'is-active', r.n === s.active + 1); }
+      dirty = true;
+      if (inspect.inspectVar) { const v = q.toFixed(4); host.style.setProperty(inspect.inspectVar, v); if (trackEl) trackEl.style.setProperty(inspect.inspectVar, v); }
+    }
+    function placeCam(e) {
+      const fov = (+CONFIG.fov || 30) * D2R, a = w / h, hfov = 2 * Math.atan(Math.tan(fov / 2) * a);
+      const d0 = fitDistance(azimuth0(), +CONFIG.startElevation || 0, fov, a) * (+CONFIG.margin || 1.25);
+      const d1 = zoomDist(+CONFIG.zoom || 0.36);
+      const dist = Math.exp(Math.log(d0) + (Math.log(d1) - Math.log(d0)) * e);
+      const az = (azimuth0() + (azimuth() - azimuth0()) * e) * D2R, el = ((+CONFIG.startElevation || 0) + ((+CONFIG.elevation || 0) - (+CONFIG.startElevation || 0)) * e) * D2R;
+      camTarget.copy(droneC).lerp(target, e);
+      const pe = endPoint(), ps = (isNarrow() && CONFIG.startPointNarrow) || CONFIG.startPoint || { x: 0.5, y: 0.5 }, px = ps.x + (pe.x - ps.x) * e, py = ps.y + (pe.y - ps.y) * e;
+      aim(az, el, dist, px, py);
       fadeGrid(); motorColor(e);
+      if (hot) for (const it of hot.items) { it.g.style.opacity = '0'; it.label.style.opacity = '0'; }
+      if (rows === null && inspect) rows = rowEls(); if (activeRow !== -1 && rows) { activeRow = -1; for (const r of rows) r.el.classList.remove(inspect.activeClass || 'is-active'); }
       if (flag) { const w = CONFIG.flagFade, f = Array.isArray(w) && w.length === 2 && w[1] > w[0] ? 1 - Math.min(1, Math.max(0, (e - w[0]) / (w[1] - w[0]))) : 1; flag.mat.uniforms.uOpacity.value = (+CONFIG.flagOpacity || 0.85) * f; edgeMat.uniforms.uFlagA.value = f; }
       dirty = true;
       if (CONFIG.progressVar) { const v = e.toFixed(4); host.style.setProperty(CONFIG.progressVar, v); if (trackEl) trackEl.style.setProperty(CONFIG.progressVar, v); }
@@ -386,8 +473,10 @@
       edgeMat.uniforms.uWidth.value = Math.max(0.5, (+CONFIG.lineWidth || 1) * S * PR / 1.5);
       ribMat.uniforms.uWidth.value = Math.max(0.3, (+CONFIG.ribWidth || 1) * PR); gridMat.uniforms.uWidth.value = Math.max(0.3, (+CONFIG.gridWidth || 1) * PR); ribMat.uniforms.uOpacity.value = +CONFIG.ribOpacity;
       for (const m of lineMats) { if (m !== ribMat && m !== gridMat) m.uniforms.uWidth.value = Math.max(0.3, (+CONFIG.gridWidth || 1) * PR); m.uniforms.uRes.value.set(W, H); m.uniforms.uHalf.value = m.uniforms.uWidth.value / 2 + 1; }
-      if (!trackEl) progress = progressTarget = 1; placeCam(ease(progress)); shownProgress = progress;
+      if (!trackEl) progress = progressTarget = 1; place();
     }
+    // the camera for the current progress: the approach until it has arrived, then the inspection
+    function place() { if (inspect && progress >= 1 && insp > 0 && !isNarrow()) placeInspect(insp); else placeCam(ease(progress)); shownProgress = progress; shownInsp = insp; }
     function render() {
       renderer.setRenderTarget(null); renderer.clear(); renderer.render(scene, camera);   // the faces (occluders), ribs and grid, multisampled
       const v = camera.view, fw = v.fullWidth, fh = v.fullHeight, ox = v.offsetX, oy = v.offsetY, vw = v.width, vh = v.height;   // the framing
@@ -410,7 +499,7 @@
     // ---- the loop: the camera follows the scroll through the track, damped; the props turn with the scroll
     let dirty = true, alive = true, visible = true, lastT = performance.now(), spin = 0, spinTarget = 0, idle = 0, flagT = 0;
     const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const onScroll = () => { spinTarget = (global.scrollY || 0) / 1000 * (+CONFIG.propScroll || 0) * Math.PI * 2; progressTarget = trackEl ? readProgress() : 1;
+    const onScroll = () => { spinTarget = (global.scrollY || 0) / 1000 * (+CONFIG.propScroll || 0) * Math.PI * 2; progressTarget = trackEl ? readProgress() : 1; inspTarget = readInspect();
       if (trackEl && CONFIG.exitVar) { const tr = trackEl.getBoundingClientRect(), hr = host.getBoundingClientRect(); const ex = Math.min(1, Math.max(0, 1 - (tr.bottom - hr.top) / Math.max(1, hr.height))).toFixed(4); host.style.setProperty(CONFIG.exitVar, ex); trackEl.style.setProperty(CONFIG.exitVar, ex); } };
     addEventListener('scroll', onScroll, { passive: true }); onScroll(); spin = spinTarget; progress = progressTarget;
     const io = new IntersectionObserver(en => { visible = en[0].isIntersecting; }); io.observe(host);
@@ -418,7 +507,8 @@
       if (!alive) return; requestAnimationFrame(tick);
       const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
       if (visible && progressTarget !== progress) { progress = reduced ? progressTarget : progress + (progressTarget - progress) * Math.min(1, (+CONFIG.damping || 0.12) * dt * 60); if (Math.abs(progressTarget - progress) < 1e-5) progress = progressTarget; }
-      if (visible && progress !== shownProgress) { placeCam(ease(progress)); shownProgress = progress; }
+      if (visible && inspTarget !== insp) { insp = reduced ? inspTarget : insp + (inspTarget - insp) * Math.min(1, (+CONFIG.damping || 0.12) * dt * 60); if (Math.abs(inspTarget - insp) < 1e-5) insp = inspTarget; }
+      if (visible && (progress !== shownProgress || insp !== shownInsp)) place();
       if (!reduced && visible) {
         if (CONFIG.propSeconds > 0) { idle += dt * Math.PI * 2 / CONFIG.propSeconds; dirty = true; }
         if (Math.abs(spinTarget - spin) > 1e-4) { spin += (spinTarget - spin) * Math.min(1, dt * 6); if (Math.abs(spinTarget - spin) < 1e-4) spin = spinTarget; dirty = true; }
@@ -432,16 +522,16 @@
     function applyColors() {
       const next = {}; for (const k of COLOR_KEYS) next[k] = resolveColor(host, RAW[k]);
       const sig = JSON.stringify(next); if (sig === lastColors) return; lastColors = sig; Object.assign(CONFIG, next);
-      host.style.background = CONFIG.background; faceMat.color.set(CONFIG.face); gridMat.uniforms.uColor.value.set(CONFIG.gridColor); for (const m of lineMats) { m.uniforms.uBg.value.set(CONFIG.face); if (m !== ribMat && m !== gridMat) m.uniforms.uColor.value.set(CONFIG.secondary); } edgeMat.uniforms.uC2.value.set(CONFIG.secondary); motorColor(ease(progress)); if (!grid) buildGrid(); dirty = true;
+      host.style.background = CONFIG.background; faceMat.color.set(CONFIG.face); if (hot) for (const it of hot.items) { it.dot.setAttribute('fill', CONFIG.primary); it.ring.setAttribute('stroke', CONFIG.primary); it.path.setAttribute('stroke', CONFIG.primary); it.label.style.color = CONFIG.primary; } gridMat.uniforms.uColor.value.set(CONFIG.gridColor); for (const m of lineMats) { m.uniforms.uBg.value.set(CONFIG.face); if (m !== ribMat && m !== gridMat) m.uniforms.uColor.value.set(CONFIG.secondary); } edgeMat.uniforms.uC2.value.set(CONFIG.secondary); motorColor(ease(progress)); if (!grid) buildGrid(); dirty = true;
     }
-    applyColors();
+    buildHotspots(); applyColors();
     const themeWatch = setInterval(() => { if (alive) applyColors(); }, 400);
     const ro = global.ResizeObserver ? new ResizeObserver(frame) : null; if (ro) ro.observe(host); else addEventListener('resize', frame);
     frame();
     return {
       set(patch) { Object.assign(CONFIG, patch || {}); for (const k of COLOR_KEYS) if (patch && k in patch) { RAW[k] = patch[k]; lastColors = ''; } edgeMat.uniforms.uDepthT.value = +CONFIG.depthEdge || 0.012; edgeMat.uniforms.uNormT.value = +CONFIG.normalEdge || 0.25; if (patch && ('grid' in patch || 'gridExtent' in patch)) buildGrid(); applyColors(); onScroll(); frame(); },
-      setProgress(p) { progressTarget = progress = Math.min(1, Math.max(0, +p || 0)); placeCam(ease(progress)); shownProgress = progress; },
-      get state() { return { focus: key, azimuth: azimuth(), startAzimuth: azimuth0(), progress, motorHeight: motorH, triangles: tris, props: props.length, pixelRatio: renderer.getPixelRatio(), edgePass: [rt.width, rt.height], tiles: T.nx * T.ny }; },
+      setProgress(p, q) { progressTarget = progress = Math.min(1, Math.max(0, +p || 0)); inspTarget = insp = Math.min(1, Math.max(0, +q || 0)); place(); },
+      get state() { return { focus: key, azimuth: azimuth(), startAzimuth: azimuth0(), progress, inspect: insp, motorHeight: motorH, triangles: tris, props: props.length, pixelRatio: renderer.getPixelRatio(), edgePass: [rt.width, rt.height], tiles: T.nx * T.ny }; },
       destroy() { alive = false; clearInterval(themeWatch); io.disconnect(); removeEventListener('scroll', onScroll); if (ro) ro.disconnect(); else removeEventListener('resize', frame); rt.dispose(); renderer.dispose(); renderer.domElement.remove(); }
     };
   }
@@ -454,5 +544,5 @@
       .then(() => new Promise((res, rej) => new global.THREE.GLTFLoader().load(CONFIG.model || (HERE + 'heavy_lift_drone_model.glb'), res, undefined, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.12.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.13.0' };
 })(typeof window !== 'undefined' ? window : this);

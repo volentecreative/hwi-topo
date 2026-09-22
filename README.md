@@ -356,6 +356,13 @@ grid are drawn as screen-space quads with their own coverage, so they stay antia
 are replaced with generated blades (tapered, twisted, a real section), which turn as the page
 scrolls, neighbours counter-rotating. A floor grid fades toward the frame's edges.
 
+With `inspect` set, an inspection follows the arrival: the `runEnd` section's own scroll (make it two or
+three viewports tall, with its content sticky inside) steps the camera through three resting poses round the
+motor, each with a hotspot on the housing — a dot, a leader line and a label — and a feature row made active
+(`[data-inspect="1"]`.. rows get `is-active`). The poses, their scroll windows (`holds`, `lead`, `settle`), the
+rows selector, the label class (`hotspotClass`) and the leader's shape are all in `inspect`; see `INSPECT` in
+the source for the defaults. The inspection is skipped up to `breakpoint`, where the arrival view holds.
+
 The camera is a real one and moves: with `track` set, it dollies along a path over that section's
 scroll, from the whole aircraft centred, dead level and head-on, round and down to beneath the front-left
 motor, looking up at it from its outer side with the rest of the drone above and behind. The target slides from the drone's centre to the
