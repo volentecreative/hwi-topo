@@ -92,14 +92,15 @@
     // the housing's height as a share of the frame, and where the hotspot sits on the housing: `angle` is a heading
     // round it, `height` runs 0-1 from the bottom of the wall to the top (beyond either for the cap or the mount),
     // `radius` is a multiple of the housing's radius. The label is the hotspot's caption
+    // the camera passes through each pose at `at` (of the section's scroll; the centre of its window when not given) on
+    // one smooth curve from the arrival view: it never stops between poses, only eases to rest after the last
     poses: [
       { azimuth: -10, elevation: -6, zoom: 0.36, anchor: { angle: -42, height: 0.62, radius: 1 }, label: '01' },
       { azimuth: 40, elevation: 2, zoom: 0.38, anchor: { angle: 8, height: -0.08, radius: 0.92 }, label: '02' },
       { azimuth: 96, elevation: 14, zoom: 0.36, anchor: { angle: 62, height: 1.14, radius: 0.55 }, label: '03' }
     ],
-    holds: [[0.15, 0.35], [0.45, 0.65], [0.75, 0.95]],   // of the section's scroll: where each pose rests; the moves run between them
-    lead: 0.1,                 // the move from the arrival view into the first pose runs over this much scroll before its hold
-    settle: 0.05,              // the hotspot fades in over this much scroll after a hold begins, and out over as much before it ends
+    windows: [[0.4, 0.6], [0.6, 0.8], [0.8, 1]],   // of the section's scroll: each pose's window, where its hotspot shows and its row is active; before the first is the intro
+    settle: 0.04,              // the hotspot fades in over this much scroll after its window begins, and out over as much before it ends
     rows: '[data-inspect]',    // the feature rows, numbered 1.. in that attribute; the active one gets `activeClass`
     activeClass: 'is-active',
     hotspotClass: '',          // CSS class(es) for the hotspot labels (e.g. the site's eyebrow style)
@@ -392,7 +393,7 @@
       camera.near = Math.max(0.02, dist * 0.05); camera.far = dist + droneR * 4 + flagReach; edgeMat.uniforms.uNear.value = camera.near; edgeMat.uniforms.uFar.value = camera.far; for (const m of lineMats) m.uniforms.uNear.value = camera.near;
       camera.setViewOffset(w, h, (0.5 - px) * w, (0.5 - py) * h, w, h); camera.updateProjectionMatrix(); camera.updateMatrixWorld();
     }
-    // ---- the inspection: the camera steps between resting poses round the motor as the end section scrolls
+    // ---- the inspection: the camera orbits the motor through the poses, on one smooth curve, as the end section scrolls
     let hot = null;   // the hotspots' overlay: { svg, items: [{ g, dot, ring, path, label }] }
     function buildHotspots() {
       if (!inspect) return; const NS = 'http://www.w3.org/2000/svg', svg = document.createElementNS(NS, 'svg');
@@ -411,21 +412,24 @@
       return new THREE.Vector3(hs.c.x + Math.sin(ang) * r, hs.y0 + (a.height == null ? 0.5 : +a.height) * (hs.y1 - hs.y0), hs.c.z + Math.cos(ang) * r); };
     const rowEls = () => { if (!inspect || !inspect.rows) return []; const out = []; document.querySelectorAll(inspect.rows).forEach(el => { const n = parseInt(el.getAttribute('data-inspect'), 10); if (n > 0) out.push({ el, n }); }); return out; };
     let rows = null, activeRow = -1;
-    // where the camera is at this much of the inspection: the pose, its heading eased between rests, the hotspots'
-    // opacities and which feature is active
+    // a monotone cubic through (ts[i], vs[i]), flat at both ends: no overshoot, no stop between the knots
+    function spline(ts, vs, q) {
+      const n = ts.length; if (q <= ts[0]) return vs[0]; if (q >= ts[n - 1]) return vs[n - 1];
+      const d = [], m = [0]; for (let i = 0; i + 1 < n; i++) d.push((vs[i + 1] - vs[i]) / (ts[i + 1] - ts[i]));
+      for (let i = 1; i + 1 < n; i++) { const a = d[i - 1], b = d[i]; if (a * b <= 0) { m.push(0); continue; } const g = (vs[i + 1] - vs[i - 1]) / (ts[i + 1] - ts[i - 1]), lim = 3 * Math.min(Math.abs(a), Math.abs(b)); m.push(Math.sign(g) * Math.min(Math.abs(g), lim)); }
+      m.push(0); let i = 0; while (q > ts[i + 1]) i++;
+      const hh = ts[i + 1] - ts[i], t = (q - ts[i]) / hh, t2 = t * t, t3 = t2 * t;
+      return (2 * t3 - 3 * t2 + 1) * vs[i] + (t3 - 2 * t2 + t) * hh * m[i] + (-2 * t3 + 3 * t2) * vs[i + 1] + (t3 - t2) * hh * m[i + 1];
+    }
+    // where the camera is at this much of the inspection: its heading and zoom on the curve through the poses, the
+    // hotspots' opacities and which feature is active
     function inspectAt(q) {
-      const P = inspect.poses, H = inspect.holds, lead = +inspect.lead || 0.1, st = +inspect.settle || 0.05;
-      const intro = { azimuth: azimuth(), elevation: +CONFIG.elevation || 0, zoom: +CONFIG.zoom || 0.36 };
-      let from = intro, to = intro, t = 0;
-      if (q < H[0][0] - lead) { from = to = intro; }
-      else if (q < H[0][0]) { from = intro; to = P[0]; t = (q - (H[0][0] - lead)) / lead; }
-      else { from = to = P[P.length - 1];
-        for (let k = 0; k < P.length; k++) { if (q <= H[k][1]) { from = to = P[k]; break; } if (k + 1 < P.length && q < H[k + 1][0]) { from = P[k]; to = P[k + 1]; t = (q - H[k][1]) / (H[k + 1][0] - H[k][1]); break; } } }
-      const u = ease(Math.min(1, Math.max(0, t)));
-      const az = from.azimuth + (to.azimuth - from.azimuth) * u, el = from.elevation + (to.elevation - from.elevation) * u, zoom = Math.exp(Math.log(from.zoom) + (Math.log(to.zoom) - Math.log(from.zoom)) * u);
-      const hots = P.map((p, k) => { const [a, b] = H[k]; if (q < a || q > b) return 0; return Math.min(1, (q - a) / st, (b - q) / st); });
-      let active = -1; for (let k = 0; k < P.length; k++) { const a = k === 0 ? H[0][0] - lead / 2 : (H[k - 1][1] + H[k][0]) / 2, b = k + 1 < P.length ? (H[k][1] + H[k + 1][0]) / 2 : 2; if (q >= a && q < b) active = k; }
-      return { az, el, zoom, hots, active };
+      const P = inspect.poses, W = inspect.windows, st = +inspect.settle || 0.04;
+      const ts = [0], az = [azimuth()], el = [+CONFIG.elevation || 0], lz = [Math.log(+CONFIG.zoom || 0.36)];
+      P.forEach((p, k) => { const w = W[k] || [1, 1], t = p.at == null ? (w[0] + w[1]) / 2 : +p.at; if (t <= ts[ts.length - 1]) return; ts.push(t); az.push(+p.azimuth); el.push(+p.elevation); lz.push(Math.log(+p.zoom || 0.36)); });
+      const hots = P.map((p, k) => { const w = W[k]; if (!w || q < w[0] || q > w[1]) return 0; return Math.min(1, (q - w[0]) / st, (w[1] - q) / st); });
+      let active = -1; P.forEach((p, k) => { const w = W[k]; if (w && q >= w[0] && (q < w[1] || (k === P.length - 1 && q <= w[1]))) active = k; });
+      return { az: spline(ts, az, q), el: spline(ts, el, q), zoom: Math.exp(spline(ts, lz, q)), hots, active };
     }
     function placeInspect(q) {
       const s = inspectAt(q), pe = endPoint(); camTarget.copy(target);
@@ -531,7 +535,7 @@
     return {
       set(patch) { Object.assign(CONFIG, patch || {}); for (const k of COLOR_KEYS) if (patch && k in patch) { RAW[k] = patch[k]; lastColors = ''; } edgeMat.uniforms.uDepthT.value = +CONFIG.depthEdge || 0.012; edgeMat.uniforms.uNormT.value = +CONFIG.normalEdge || 0.25; if (patch && ('grid' in patch || 'gridExtent' in patch)) buildGrid(); applyColors(); onScroll(); frame(); },
       setProgress(p, q) { progressTarget = progress = Math.min(1, Math.max(0, +p || 0)); inspTarget = insp = Math.min(1, Math.max(0, +q || 0)); place(); },
-      get state() { return { focus: key, azimuth: azimuth(), startAzimuth: azimuth0(), progress, inspect: insp, motorHeight: motorH, triangles: tris, props: props.length, pixelRatio: renderer.getPixelRatio(), edgePass: [rt.width, rt.height], tiles: T.nx * T.ny }; },
+      get state() { const d = camera.position.clone().sub(camTarget); return { focus: key, azimuth: azimuth(), startAzimuth: azimuth0(), progress, inspect: insp, heading: [Math.atan2(d.x, d.z) / D2R, Math.atan2(d.y, Math.hypot(d.x, d.z)) / D2R, d.length()], motorHeight: motorH, triangles: tris, props: props.length, pixelRatio: renderer.getPixelRatio(), edgePass: [rt.width, rt.height], tiles: T.nx * T.ny }; },
       destroy() { alive = false; clearInterval(themeWatch); io.disconnect(); removeEventListener('scroll', onScroll); if (ro) ro.disconnect(); else removeEventListener('resize', frame); rt.dispose(); renderer.dispose(); renderer.domElement.remove(); }
     };
   }
@@ -544,5 +548,5 @@
       .then(() => new Promise((res, rej) => new global.THREE.GLTFLoader().load(CONFIG.model || (HERE + 'heavy_lift_drone_model.glb'), res, undefined, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.13.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.14.0' };
 })(typeof window !== 'undefined' ? window : this);

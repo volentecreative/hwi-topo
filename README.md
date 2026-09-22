@@ -356,12 +356,15 @@ grid are drawn as screen-space quads with their own coverage, so they stay antia
 are replaced with generated blades (tapered, twisted, a real section), which turn as the page
 scrolls, neighbours counter-rotating. A floor grid fades toward the frame's edges.
 
-With `inspect` set, an inspection follows the arrival: the `runEnd` section's own scroll (make it two or
-three viewports tall, with its content sticky inside) steps the camera through three resting poses round the
-motor, each with a hotspot on the housing — a dot, a leader line and a label — and a feature row made active
-(`[data-inspect="1"]`.. rows get `is-active`). The poses, their scroll windows (`holds`, `lead`, `settle`), the
-rows selector, the label class (`hotspotClass`) and the leader's shape are all in `inspect`; see `INSPECT` in
-the source for the defaults. The inspection is skipped up to `breakpoint`, where the arrival view holds.
+With `inspect` set, an inspection follows the arrival: the `runEnd` section's own scroll (make it three or
+four viewports tall, with its content sticky inside) carries the camera round the motor on one smooth curve
+through three poses — it never stops between them, only eases to rest after the last. Each pose has a
+window of that scroll (`windows`; the first window's start is the end of the intro) in which its hotspot on
+the housing — a dot, a leader line and a label — shows and its feature row is active (`[data-inspect="1"]`..
+rows get `is-active`); the camera passes through the pose at the window's centre (or the pose's `at`). The
+poses, the windows, `settle`, the rows selector, the label class (`hotspotClass`) and the leader's shape are
+all in `inspect`; see `INSPECT` in the source for the defaults. The inspection is skipped up to `breakpoint`,
+where the arrival view holds.
 
 The camera is a real one and moves: with `track` set, it dollies along a path over that section's
 scroll, from the whole aircraft centred, dead level and head-on, round and down to beneath the front-left
