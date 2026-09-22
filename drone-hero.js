@@ -59,11 +59,11 @@
     flagOpacity: 0.85,         // the stripes' and stars' opacity (their colour is the secondary)
     flagFade: [0.5, 0.85],     // [from, to]: the window of the path's progress over which the flag fades away, so the close-up never shows its edge cut across the frame; null = never
     primaryIn: null,           // [from, to]: the window of the path's progress over which the motors go from the secondary colour to the primary (null = primary throughout)
-    exitVar: '--drone-exit',
+    exitVar: '--drone-exit',   // a CSS custom property that runs 0-1 over the last viewport of the track's scroll, as the pinned canvas begins to leave with the track's end; '' = none
     // the inspection: once the path has arrived (the runEnd section at the top), that section's own scroll steps the
     // camera through three resting poses round the motor, each with a hotspot on the motor and a feature row made
     // active. null = none. See INSPECT for the defaults; pass any subset to change them
-    inspect: null,           // a CSS custom property that runs 0-1 over the last viewport of the track's scroll, as the pinned canvas begins to leave with the track's end — for fading it out; '' = none
+    inspect: null,
     // the start of the path: the whole aircraft, centred, level, from the front
     startAzimuth: 0,           // camera heading at the start; 0 = the front view
     startElevation: 0,         // degrees above the horizon at the start; 0 = dead level
