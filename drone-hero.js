@@ -61,6 +61,7 @@
     primaryIn: null,           // [from, to]: the window of the path's progress over which the motors go from the secondary colour to the primary (null = primary throughout)
     arriveEvent: 'drone:arrive',   // dispatched (bubbling) on the runEnd element when the path arrives there, and…
     leaveEvent: 'drone:leave',     // … when the scroll takes it back up the path; '' = none. The page's own scripts can start things on them
+    scrollVar: '--drone-scroll',   // the same as progressVar but undamped — straight from the scroll position, for anything that must never lag the page (e.g. a panel that fades out before its sticky start); '' = none
     exitVar: '',               // a CSS custom property that runs 0-1 over the last viewport of the track's scroll, as the pinned canvas begins to leave with the track's end; '' = none (it costs a layout read per scroll event)
     // the inspection: once the path has arrived (the runEnd section at the top), that section's own scroll steps the
     // camera through three resting poses round the motor, each with a hotspot on the motor and a feature row made
@@ -534,7 +535,7 @@
     // ---- the loop: the camera follows the scroll through the track, damped; the props turn with the scroll
     let dirty = true, alive = true, visible = true, lastT = performance.now(), spin = 0, spinTarget = 0, idle = 0, flagT = 0;
     const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches, coarse = matchMedia('(pointer: coarse)').matches, frameMs = coarse && +CONFIG.fpsCoarse > 0 ? 1000 / +CONFIG.fpsCoarse : 0; let lastRender = 0;
-    const onScroll = () => { spinTarget = (global.scrollY || 0) / 1000 * (+CONFIG.propScroll || 0) * Math.PI * 2; progressTarget = trackEl ? readProgress() : 1; inspTarget = readInspect(); posTarget = progressTarget + inspTarget;
+    const onScroll = () => { spinTarget = (global.scrollY || 0) / 1000 * (+CONFIG.propScroll || 0) * Math.PI * 2; progressTarget = trackEl ? readProgress() : 1; inspTarget = readInspect(); posTarget = progressTarget + inspTarget; setVar(CONFIG.scrollVar, ease(progressTarget), 3);
       if (trackEl && CONFIG.exitVar) { const tr = trackEl.getBoundingClientRect(), hr = host.getBoundingClientRect(); const ex = Math.min(1, Math.max(0, 1 - (tr.bottom - hr.top) / Math.max(1, hr.height))).toFixed(4); host.style.setProperty(CONFIG.exitVar, ex); trackEl.style.setProperty(CONFIG.exitVar, ex); } };
     addEventListener('scroll', onScroll, { passive: true }); onScroll(); spin = spinTarget; progress = progressTarget; insp = inspTarget; pos = posTarget;
     const io = new IntersectionObserver(en => { visible = en[0].isIntersecting; }); io.observe(host);
@@ -578,5 +579,5 @@
       .then(() => new Promise((res, rej) => new global.THREE.GLTFLoader().load(CONFIG.model || (HERE + 'heavy_lift_drone_model.glb'), res, undefined, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.23.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.24.0' };
 })(typeof window !== 'undefined' ? window : this);

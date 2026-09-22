@@ -401,7 +401,8 @@ ribbed casing sits in the frame at the end; the narrow one up to `breakpoint`, 9
 `startPointNarrow` (where the whole drone's centre sits at the start; a y above 1 puts it below the frame so
 only its top peeks in). `progressVar` (`--drone-progress`) names a CSS custom property the eased, damped
 progress (0-1) is written to on the track and the host, so the page's own copy can move with the camera
-from the style panel, e.g. `left: calc(50% + var(--drone-progress, 0) * 25%)`. `arriveEvent` (`drone:arrive`) and `leaveEvent` (`drone:leave`) are DOM events dispatched on the `runEnd` element
+from the style panel, e.g. `left: calc(50% + var(--drone-progress, 0) * 25%)`. `scrollVar` (`--drone-scroll`) is the same as `progressVar` but undamped, straight from the scroll position, for
+anything that must never lag the page. `arriveEvent` (`drone:arrive`) and `leaveEvent` (`drone:leave`) are DOM events dispatched on the `runEnd` element
 as the path arrives there and as the scroll takes it back up, for the page's own scripts to start on. `exitVar` (off by default; e.g. `--drone-exit`) is a second
 property that runs 0-1 over the last viewport of the track's scroll, as the pinned canvas begins to leave with
 the track's end, for fading the canvas out before the next section: e.g. `opacity: calc(1 - var(--drone-exit, 0) * 2.5)`. The start: `startAzimuth` (0,
