@@ -34,6 +34,7 @@
     "intervalRevealMode": "progressive",
     "microInterval": 10,
     "contourLevels": 2,
+    "approachTail": 0,           // viewports of the approachScroll track's scroll held after the descent has landed (make the track that much taller), so the end is a rest, not the edge
     "fpsCoarse": 30,             // on touch devices (a coarse pointer): at most this many frames a second, so the page's own scrolling keeps its frames
     "coarseInterval": 100,
     "coarseColor": "var(--topo-coarse, var(--topo-muted, #3f4040))",
@@ -526,7 +527,7 @@
       };
       if(CONFIG.stage && CONFIG.stage.reveal && !reduced){ const el=document.querySelector(CONFIG.stage.reveal); if(el) el.style.opacity='0'; }
       const track=CONFIG.approachScroll ? document.querySelector(CONFIG.approachScroll) : null;
-      AP.readScroll=()=>{ if(!track) return; const r=track.getBoundingClientRect(); const span=r.height-innerHeight; AP.target = span>0 ? Math.min(1,Math.max(0,-r.top/span)) : 1; };
+      AP.readScroll=()=>{ if(!track) return; const r=track.getBoundingClientRect(); const span=r.height-innerHeight-(+CONFIG.approachTail||0)*innerHeight; AP.target = span>0 ? Math.min(1,Math.max(0,-r.top/span)) : 1; };   // approachTail: viewports of the track's scroll kept after the descent has landed, to sit on the end
       AP.readScroll();
     }
     let pendingFit=false, fitQueued=false;
@@ -612,5 +613,5 @@
   }
   function autoMount(){ document.querySelectorAll('[data-topo]').forEach(el=>{ if(el.dataset.topoMounted) return; el.dataset.topoMounted='1'; let cfg={}; try{ cfg=JSON.parse(el.dataset.config||'{}'); }catch(e){} mount(el,cfg); }); }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', autoMount); else autoMount();
-  global.TopoTurntable = { mount, defaults: DEFAULTS, version: '2.1.0' };
+  global.TopoTurntable = { mount, defaults: DEFAULTS, version: '2.2.0' };
 })(window);

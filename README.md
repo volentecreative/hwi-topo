@@ -92,6 +92,7 @@ to the value shown here.
     approachScroll:  '',        // selector of the tall track the stage is stuck inside; progress follows its scroll
     approachLens:    38,        // field of view at the top; it narrows to `lens` on the way down
     approachDamping: 0.12,      // how quickly the view follows the scroll (1 = instantly)
+    approachTail:    0,         // viewports of that track's scroll held after the descent has landed (make the track that much taller), so the end is a rest, not the edge
     stage: null,                // let the script move the map's own box with the descent — see below; e.g.
                                 // { move: '.topo-descent_map-wrapper', reveal: '.topo-descent_text-wrapper', start: 0.45, end: 0.7 }
     focus: null,                // where the county sits on the canvas at rest, as fractions of its width and height, e.g.
@@ -356,20 +357,25 @@ grid are drawn as screen-space quads with their own coverage, so they stay antia
 are replaced with generated blades (tapered, twisted, a real section), which turn as the page
 scrolls, neighbours counter-rotating. A floor grid fades toward the frame's edges.
 
-With `inspect` set, an inspection follows the arrival: the `runEnd` section's own scroll (make it three or
-four viewports tall, with its content sticky inside) carries the camera round the motor through three poses.
-The whole path is one curve — from the page's top, through the arrival and the poses — so the approach runs
-straight on into the inspection without a stop, and the camera only eases to rest after the last pose. Each pose has a
-window of that scroll (`windows`; the first window's start is the end of the intro) in which its hotspot on
-the housing — a dot, a leader line and a label — shows and its feature row is active (`[data-inspect="1"]`..
-rows get `is-active`, each row gets `--inspect-fill`, 0-1 through its window, for a progress bar, and a `drone:reach` event as the scroll
-reaches its window, `drone:unreach` on the way back up past it; with `click` a click on a row scrolls the page to its
-window); the camera passes through the pose at the window's centre (or the pose's `at`), and a
-pose can shift the look-at point toward the drone's centre (`centre`) or elsewhere in the frame (`point`). The
-poses, the windows, `settle`, the rows selector, the label class (`hotspotClass`) and the callout's shape (`leader`, a straight line from the
-anchor to a small square with the label above it, as the topo map's county marker; `dot`, the square's side) are
-all in `inspect`; see `INSPECT` in the source for the defaults. The inspection is skipped up to `breakpoint`,
-where the arrival view holds.
+With `inspect` set, an inspection follows the arrival: the `runEnd` section's own scroll (make it four or
+five viewports tall, with its content sticky inside) carries the camera through three poses. The whole path
+is one curve — from the page's top, through the arrival and the poses — so the approach runs straight on into
+the inspection without a stop, and the camera only eases to rest after the last pose. By default the first
+pose holds the arrival view while everything but the focused motor fades away (`isolate`, a window of the
+section's scroll; the floor grid stays), the second is the motor's profile from the drone's left, dead level,
+and the third lifts up and further round to the left to reveal a row of copies of the motor behind it
+(`copies`: how many, their spacing in housing diameters, and the window over which they fade in; they sit
+exactly behind the motor along the profile's line of sight, and each further one is dimmer, so the row fades
+into the distance). Each pose has a window of that scroll (`windows`; the first window's start is the end
+of the intro) in which its feature row is active (`[data-inspect="1"]`.. rows get `is-active`, each row gets
+`--inspect-fill`, 0-1 through its window, for a progress bar, and a `drone:reach` event as the scroll reaches
+its window, `drone:unreach` on the way back up past it; with `click` a click on a row scrolls the page to its
+window); the camera passes through the pose at the window's centre (or the pose's `at`), and a pose can
+shift the look-at point toward the drone's centre (`centre`) or elsewhere in the frame (`point`); a pose
+value of null is the arrival's. With `callouts`, each window also shows a callout on the housing (a straight
+leader to a small square with the pose's `label` above it, as the topo map's county marker; `leader`, `dot`,
+`hotspotClass`). The poses, the windows, `settle` and the rows selector are all in `inspect`; see `INSPECT`
+in the source for the defaults. The inspection is skipped up to `breakpoint`, where the arrival view holds.
 
 The camera is a real one and moves: with `track` set, it dollies along a path over that section's
 scroll, from the whole aircraft centred, dead level and head-on, round and down to beneath the front-left

@@ -103,10 +103,13 @@
     // may also move the look-at point from the motor's housing toward the drone's centre (`centre`, 0-1) and put it
     // elsewhere in the frame (`point`, as the top-level one); the anchor is the hotspot's place on the housing
     poses: [
-      { azimuth: -40, elevation: -12, zoom: 0.26, anchor: { angle: -42, height: 0.62, radius: 1 }, label: '01' },   // from below and a little round to the left: the whole aircraft
-      { azimuth: -90, elevation: 2, zoom: 0.24, anchor: { angle: -70, height: 0.5, radius: 1 }, label: '02' },       // the profile, from the drone's left, dead level
-      { azimuth: -180, elevation: 90, zoom: 0.085, centre: 1, anchor: { angle: -135, height: 1.14, radius: 0.55 }, label: '03' }   // straight down, the drone centred, its nose up
+      { azimuth: null, elevation: null, zoom: null, anchor: { angle: -42, height: 0.62, radius: 1 }, label: '01' },   // the arrival view held (null = as the arrival), the rest of the drone stripped away
+      { azimuth: -90, elevation: 0, zoom: 0.36, anchor: { angle: -70, height: 0.5, radius: 1 }, label: '02' },       // the profile, from the drone's left, dead level
+      { azimuth: -135, elevation: 35, zoom: 0.2, anchor: { angle: -135, height: 1.14, radius: 0.55 }, label: '03' }  // from above and further round to the left: the row of copies behind it
     ],
+    isolate: [0.1, 0.3],       // of the section's scroll: the window over which everything but the focused motor fades away (the floor grid stays); null = never
+    copies: { count: 6, gap: 1.3, fade: [0.58, 0.66] },   // the focused motor repeated behind itself: how many (each further one dimmer, the last nearly gone), their spacing in housing diameters, and the window (of the section's scroll) over which they fade in — hidden behind the motor at the profile; null = none
+    callouts: false,           // true: a callout on the housing in each window (a leader to a small square, the pose's `label` above)
     windows: [[0.4, 0.6], [0.6, 0.8], [0.8, 1]],   // of the section's scroll: each pose's window, where its hotspot shows and its row is active; before the first is the intro
     settle: 0.04,              // the hotspot fades in over this much scroll after its window begins, and out over as much before it ends
     rows: '[data-inspect]',    // the feature rows, numbered 1.. in that attribute; the active one gets `activeClass`
@@ -164,12 +167,14 @@
   const ID_VERT = 'varying vec3 vN; void main(){ vN = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }';
   const ID_FRAG = 'uniform float uId; varying vec3 vN; void main(){ gl_FragColor = vec4(normalize(vN) * 0.5 + 0.5, uId); }';
   const EDGE_FRAG = `
-    uniform sampler2D tN, tD; uniform vec2 uRes; uniform vec4 uTile; uniform float uNear, uFar, uWidth, uDepthT, uNormT, uFlagA; uniform vec3 uC1, uC2;
+    uniform sampler2D tN, tD; uniform vec2 uRes; uniform vec4 uTile; uniform float uNear, uFar, uWidth, uDepthT, uNormT, uFlagA, uDroneA, uCopyA, uCopyP, uCopyN; uniform vec3 uC1, uC2;
     float lin(float z){ float zn = 2.0 * z - 1.0; return 2.0 * uNear * uFar / (uFar + uNear - zn * (uFar - uNear)); }
     // the line at one point of the (supersampled) pass: 0 = none, 1 = a line, and which colour it takes
     float edgeAt(vec2 uv, out vec3 col){
       vec2 px = uWidth / uRes; vec4 c = texture2D(tN, uv); float d = lin(texture2D(tD, uv).x); vec3 n = c.xyz * 2.0 - 1.0;
-      col = c.a > 0.75 ? uC1 : uC2; float fa = (c.a > 0.35 && c.a < 0.55) ? uFlagA : 1.0;   // the flag's ids sit in the middle range, so its lines can fade
+      // ids: the drone's other parts count up from 1, the flag is 110, the motor copies run 191 down, the other motors 240 down, the focused motor 255 down
+      col = c.a > 0.6 ? uC1 : uC2;
+      float fa = (c.a > 0.35 && c.a < 0.55) ? uFlagA : c.a > 0.94 ? 1.0 : (c.a > 0.6 && c.a <= 0.75) ? uCopyA * max(0.0, 1.0 - (floor((191.0 - floor(c.a * 255.0 + 0.5)) / uCopyP) + 1.0) / (uCopyN + 1.0)) : uDroneA;   // the flag, the focused motor, the copies (each further one dimmer), the rest of the drone: each fades on its own
       if (c.a < 0.002) return 0.0;                               // background (ids start at 1/255): lines are drawn from the object's side
       float e = 0.0;
       for (int i = 0; i < 2; i++) {                              // each axis: the two neighbours either side
@@ -251,15 +256,18 @@
       for (let i = 0; i < n; i++) { for (let k = 0; k < 4; k++) { const v = i * 4 + k; for (let j = 0; j < 3; j++) { A[v * 3 + j] = segs[i * 6 + j]; B[v * 3 + j] = segs[i * 6 + 3 + j]; } C[v * 2] = k >> 1; C[v * 2 + 1] = (k & 1) ? 1 : -1; } const b = i * 4; idx.push(b, b + 1, b + 2, b + 1, b + 3, b + 2); }
       const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(A, 3)); g.setAttribute('pointA', new THREE.BufferAttribute(A, 3)); g.setAttribute('pointB', new THREE.BufferAttribute(B, 3)); g.setAttribute('corner', new THREE.BufferAttribute(C, 2)); g.setIndex(idx);
       const m = new THREE.Mesh(g, mat); m.frustumCulled = false; m.userData.isLines = true; return m; };
-    const solids = []; let ids = [0, 255];   // part ids: the rest count up from 1, the focused motor's casing down from 255 (the edge pass colours ids above 191 primary)
-    const solid = (g, mine, fixedId) => { const m = new THREE.Mesh(g, faceMat); const id = fixedId || (mine ? ids[1]-- : ++ids[0]);
-      m.userData.idMat = new THREE.ShaderMaterial({ vertexShader: ID_VERT, fragmentShader: ID_FRAG, uniforms: { uId: { value: id / 255 } } }); solids.push(m); scene.add(m); return m; };
+    const inspect = CONFIG.inspect ? Object.assign({}, INSPECT, CONFIG.inspect) : null;   // the inspection's options (used from the build on: the motor copies are geometry)
+    // part ids, by kind: the rest of the drone counts up from 1, the focused motor's parts down from 255, the other motors' down from
+    // 240, the motor copies down from 191 (the edge pass colours ids above 153 primary, and fades each kind on its own)
+    const solids = []; const ids = { rest: 0, focus: 255, motor: 240, copy: 191 };
+    const solid = (g, kind, fixedId) => { const m = new THREE.Mesh(g, faceMat); kind = kind === true ? 'motor' : kind || 'rest'; const id = fixedId || (kind === 'rest' ? ++ids.rest : ids[kind]--);
+      m.userData.kind = fixedId ? 'flag' : kind; m.userData.idMat = new THREE.ShaderMaterial({ vertexShader: ID_VERT, fragmentShader: ID_FRAG, uniforms: { uId: { value: id / 255 } } }); solids.push(m); scene.add(m); return m; };
     // the edge pass's target and quad
     const isGL2 = renderer.capabilities.isWebGL2;
     const depthTex = new THREE.DepthTexture(1, 1); depthTex.type = isGL2 ? THREE.UnsignedIntType : THREE.UnsignedShortType;
     const rt = new THREE.WebGLRenderTarget(1, 1, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthTexture: depthTex, depthBuffer: true, stencilBuffer: false });
     const edgeMat = new THREE.ShaderMaterial({ transparent: true, depthTest: false, depthWrite: false, blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendEquation: THREE.AddEquation, vertexShader: 'void main(){ gl_Position = vec4(position.xy, 0.0, 1.0); }', fragmentShader: EDGE_FRAG,
-      uniforms: { tN: { value: rt.texture }, tD: { value: depthTex }, uRes: { value: new THREE.Vector2(1, 1) }, uTile: { value: new THREE.Vector4(0, 0, 1, 1) }, uNear: { value: camera.near }, uFar: { value: camera.far }, uWidth: { value: 1 }, uDepthT: { value: +CONFIG.depthEdge || 0.012 }, uNormT: { value: +CONFIG.normalEdge || 0.25 }, uFlagA: { value: 1 }, uC1: { value: new THREE.Color(CONFIG.primary) }, uC2: { value: new THREE.Color(CONFIG.secondary) } } });
+      uniforms: { tN: { value: rt.texture }, tD: { value: depthTex }, uRes: { value: new THREE.Vector2(1, 1) }, uTile: { value: new THREE.Vector4(0, 0, 1, 1) }, uNear: { value: camera.near }, uFar: { value: camera.far }, uWidth: { value: 1 }, uDepthT: { value: +CONFIG.depthEdge || 0.012 }, uNormT: { value: +CONFIG.normalEdge || 0.25 }, uFlagA: { value: 1 }, uDroneA: { value: 1 }, uCopyA: { value: 0 }, uCopyP: { value: 1 }, uCopyN: { value: 1 }, uC1: { value: new THREE.Color(CONFIG.primary) }, uC2: { value: new THREE.Color(CONFIG.secondary) } } });
     // the quad the lines are drawn with covers one tile of the canvas at a time
     const quadGeo = new THREE.BufferGeometry(); quadGeo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(12), 3)); quadGeo.setIndex([0, 1, 2, 0, 2, 3]);
     const quadScene = new THREE.Scene(), quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1); const quad = new THREE.Mesh(quadGeo, edgeMat); quad.frustumCulled = false; quadScene.add(quad);
@@ -299,7 +307,7 @@
       if (info && info.part === 'Prop Hub') hubs[info.pos] = g.boundingBox.clone();
       if (info && info.part === 'Propeller') { propInfo[info.pos] = g.boundingBox.clone(); if (CONFIG.props !== 'model') continue; }
       tris += g.index ? g.index.count / 3 : g.attributes.position.count / 3;
-      solid(g, mine);
+      solid(g, mine ? (isFocus ? 'focus' : 'motor') : 'rest');
     }
     const props = [];
     if (CONFIG.props !== 'model') for (const pos of Object.keys(propInfo)) {
@@ -313,11 +321,27 @@
     // the motors' ribbing: vertical lines round each one's tallest casing part, just off its surface
     // the housings' ribbing: vertical lines along each one's straight wall, just off its surface, and a rim line round
     // each end of the wall (the model rounds those edges, so the edge pass finds no crease there)
-    if (CONFIG.ribs > 0) { const a = [], N = 96;
-      for (const pos of Object.keys(coils)) { const { c, y0, y1 } = coils[pos], r = coils[pos].r * 1.004;
+    const droneRibMat = lineMaterial(CONFIG.primary, false, +CONFIG.ribOpacity); lineMats.push(droneRibMat);
+    const ribMats = new Set([ribMat, droneRibMat]); let droneRibs = null, focusRibs = [];
+    if (CONFIG.ribs > 0) { const N = 96;
+      for (const pos of Object.keys(coils)) { const { c, y0, y1 } = coils[pos], r = coils[pos].r * 1.004, a = [];
         for (let k = 0; k < CONFIG.ribs; k++) { const t = (k + 0.5) / CONFIG.ribs * Math.PI * 2, x = c.x + Math.cos(t) * r, z = c.z + Math.sin(t) * r; a.push(x, y0, z, x, y1, z); }
-        for (const y of [y0, y1]) for (let k = 0; k < N; k++) { const t0 = k / N * Math.PI * 2, t1 = (k + 1) / N * Math.PI * 2; a.push(c.x + Math.cos(t0) * r, y, c.z + Math.sin(t0) * r, c.x + Math.cos(t1) * r, y, c.z + Math.sin(t1) * r); } }
-      if (a.length) scene.add(lineMesh(a, ribMat));
+        for (const y of [y0, y1]) for (let k = 0; k < N; k++) { const t0 = k / N * Math.PI * 2, t1 = (k + 1) / N * Math.PI * 2; a.push(c.x + Math.cos(t0) * r, y, c.z + Math.sin(t0) * r, c.x + Math.cos(t1) * r, y, c.z + Math.sin(t1) * r); }
+        if (pos === key) { focusRibs = a; scene.add(lineMesh(a, ribMat)); } else { droneRibs = droneRibs || []; droneRibs.push(...a); } }
+      if (droneRibs) { droneRibs = lineMesh(droneRibs, droneRibMat); scene.add(droneRibs); }
+    }
+    // ---- the motor copies: the focused motor's parts (and ribs) repeated behind it along the profile pose's line of sight,
+    // so from the profile they hide behind it and the last pose, lifting off that line, reveals the row
+    const copies = { meshes: [], ribs: [], mats: [], n: 0, shown: false };
+    if (inspect && inspect.copies && +inspect.copies.count > 0 && coils[key]) {
+      const C = inspect.copies, parts = solids.filter(m => m.userData.kind === 'focus'), P = Math.max(1, parts.length), n = Math.max(0, Math.min(Math.floor(32 / P), C.count | 0));   // the ids 160-191 hold the copies: one band of P per copy
+      const Pz = inspect.poses[1] || {}, az = (C.azimuth == null ? (Pz.azimuth == null ? -90 : +Pz.azimuth) : +C.azimuth) * D2R;
+      const step = new THREE.Vector3(-Math.sin(az), 0, -Math.cos(az)).multiplyScalar((+C.gap || 1.3) * 2 * coils[key].r);   // behind: away from where the camera sits at that pose
+      copies.n = n; edgeMat.uniforms.uCopyP.value = P; edgeMat.uniforms.uCopyN.value = Math.max(1, n);
+      for (let k = 1; k <= n; k++) { const off = step.clone().multiplyScalar(k);
+        parts.forEach((m, j) => { const g = m.geometry.clone().translate(off.x, off.y, off.z); const c = solid(g, 'copy', 191 - (k - 1) * P - j); c.visible = false; copies.meshes.push(c); tris += g.index ? g.index.count / 3 : g.attributes.position.count / 3; });
+        if (focusRibs.length) { const a = new Array(focusRibs.length); for (let i = 0; i < focusRibs.length; i += 3) { a[i] = focusRibs[i] + off.x; a[i + 1] = focusRibs[i + 1] + off.y; a[i + 2] = focusRibs[i + 2] + off.z; }
+          const mat = lineMaterial(CONFIG.primary, false, 0); lineMats.push(mat); ribMats.add(mat); const mesh = lineMesh(a, mat); mesh.visible = false; scene.add(mesh); copies.ribs.push(mesh); copies.mats.push(mat); } }
     }
     // ---- the flag: a cloth hung from its top edge behind the drone, its faces occluding like the rest, the stripes,
     // canton and stars drawn as lines on the surface; every point is displaced each frame by a slow, soft wave
@@ -381,7 +405,7 @@
     let motorMix = 1;   // 0 = the motors in the secondary colour, 1 = in the primary
     function motorColor(e) {
       const w = CONFIG.primaryIn; motorMix = Array.isArray(w) && w.length === 2 && w[1] > w[0] ? Math.min(1, Math.max(0, (e - w[0]) / (w[1] - w[0]))) : 1;
-      const c = new THREE.Color(CONFIG.secondary).lerp(new THREE.Color(CONFIG.primary), motorMix); ribMat.uniforms.uColor.value.copy(c); edgeMat.uniforms.uC1.value.copy(c);
+      const c = new THREE.Color(CONFIG.secondary).lerp(new THREE.Color(CONFIG.primary), motorMix); for (const m of ribMats) m.uniforms.uColor.value.copy(c); edgeMat.uniforms.uC1.value.copy(c);
     }
     function fadeGrid() {   // where the focus sits on screen, and how far out the fade starts
       const t = new THREE.Vector3().copy(camTarget).project(camera); gridMat.uniforms.uFocus.value.set(t.x, t.y); gridMat.uniforms.uFade0.value = Math.max(0, Math.min(0.95, +CONFIG.gridFade || 0.3));
@@ -389,14 +413,13 @@
     // ---- the path: spherical about a target that slides from the drone's centre to the motor, distance in log
     // space, heading and height easing between the two ends, the framing point too — one camera, really moving
     // pos: the approach and the inspection as one scroll value (0-2), damped as one so the hand-over never jumps
-    let w = 1, h = 1, progress = 0, progressTarget = 0, insp = 0, inspTarget = 0, pos = 0, posTarget = 0, shownPos = -1, arrived = false; const camTarget = droneC.clone(); const T = { nx: 1, ny: 1, w: 1, h: 1, g: 3, PR: 1, S: 1, W: 1, H: 1 };   // the edge pass's tiling
+    let w = 1, h = 1, progress = 0, progressTarget = 0, insp = 0, inspTarget = 0, pos = 0, posTarget = 0, shownPos = -1, arrived = false, shownDroneA = -1, shownCopyA = -1, droneOn = true; const camTarget = droneC.clone(); const T = { nx: 1, ny: 1, w: 1, h: 1, g: 3, PR: 1, S: 1, W: 1, H: 1 };   // the edge pass's tiling
     const trackEl = (() => { const t = CONFIG.track; if (!t) return null; if (t.nodeType) return t; if (typeof t === 'string' && t.startsWith('closest:')) return host.closest(t.slice(8)); return document.querySelector(t); })();
     const endEl = trackEl && CONFIG.runEnd ? (typeof CONFIG.runEnd === 'string' ? trackEl.querySelector(CONFIG.runEnd) : CONFIG.runEnd) : null;
     const readProgress = () => { if (!trackEl) return 1; const r = trackEl.getBoundingClientRect();
       if (endEl) { const er = endEl.getBoundingClientRect(), hr = host.getBoundingClientRect(); return Math.min(1, Math.max(0, 1 - (er.top - hr.top) / Math.max(1, er.top - r.top))); }   // done when the end element reaches the canvas's top
       const run = Math.max(1, r.height - h); return Math.min(1, Math.max(0, -r.top / run)); };
     // the inspection's progress: how far the end section has scrolled past the canvas's top, over its extra height
-    const inspect = CONFIG.inspect ? Object.assign({}, INSPECT, CONFIG.inspect) : null;
     const readInspect = () => { if (!inspect || !endEl) return 0; const er = endEl.getBoundingClientRect(), hr = host.getBoundingClientRect(); return Math.min(1, Math.max(0, (hr.top - er.top) / Math.max(1, er.height - hr.height))); };
     // a CSS custom property on the host and the track, in steps of 0.001 and only when it changes: each write invalidates the track's
     // styles, and on phones a style change round a sticky element can make it re-sync mid-scroll — so not up to `breakpoint`
@@ -416,7 +439,7 @@
     // ---- the inspection: the camera orbits the motor through the poses, on one smooth curve, as the end section scrolls
     let hot = null;   // the hotspots' overlay: { svg, items: [{ g, dot, ring, path, label }] }
     function buildHotspots() {
-      if (!inspect) return; const NS = 'http://www.w3.org/2000/svg', svg = document.createElementNS(NS, 'svg');
+      if (!inspect || !inspect.callouts) return; const NS = 'http://www.w3.org/2000/svg', svg = document.createElementNS(NS, 'svg');
       Object.assign(svg.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', overflow: 'visible', pointerEvents: 'none' });
       const items = inspect.poses.map(p => { const g = document.createElementNS(NS, 'g'); g.style.opacity = '0';
         const d = +inspect.dot || 6, dot = document.createElementNS(NS, 'rect'); dot.setAttribute('width', d); dot.setAttribute('height', d);   // the square at the leader's end, as the map's county marker
@@ -454,7 +477,7 @@
       const pe = endPoint(), ps = (isNarrow() && CONFIG.startPointNarrow) || CONFIG.startPoint || { x: 0.5, y: 0.5 };
       const ts = [0, 1], az = [azimuth0(), azimuth()], el = [+CONFIG.startElevation || 0, +CONFIG.elevation || 0], ld = [Math.log(d0), Math.log(d1)], ce = [1, 0], px = [ps.x, pe.x], py = [ps.y, pe.y];
       if (withPoses) inspect.poses.forEach((p, k) => { const wn = inspect.windows[k] || [1, 1], t = 1 + (p.at == null ? (wn[0] + wn[1]) / 2 : +p.at); if (t <= ts[ts.length - 1]) return;
-        ts.push(t); az.push(+p.azimuth); el.push(+p.elevation); ld.push(Math.log(zoomDist(+p.zoom || 0.36))); ce.push(+p.centre || 0); px.push(p.point ? +p.point.x : pe.x); py.push(p.point ? +p.point.y : pe.y); });
+        ts.push(t); az.push(p.azimuth == null ? azimuth() : +p.azimuth); el.push(p.elevation == null ? (+CONFIG.elevation || 0) : +p.elevation); ld.push(Math.log(zoomDist(p.zoom == null ? (+CONFIG.zoom || 0.36) : +p.zoom))); ce.push(+p.centre || 0); px.push(p.point ? +p.point.x : pe.x); py.push(p.point ? +p.point.y : pe.y); });
       return { az: spline(ts, az, pos), el: spline(ts, el, pos), dist: Math.exp(spline(ts, ld, pos)), centre: spline(ts, ce, pos), px: spline(ts, px, pos), py: spline(ts, py, pos) };
     }
     // at this much of the inspection: the hotspots' opacities and which feature is active
@@ -477,6 +500,13 @@
         const show = f > 0.001; if (show !== flag.shown) { flag.shown = show; for (const o of flag.objects) o.visible = show; } }   // faded out: its cloth and lines leave the scene until it fades back
       if (rows === null && inspect) rows = rowEls();
       const s = useInsp && q > 0 ? inspectAt(q) : null;
+      // the rest of the drone fades away over `isolate`, and leaves the scene once gone; the copies fade in over their window
+      if (inspect) { const win = (w, v) => Array.isArray(w) && w.length === 2 && w[1] > w[0] ? Math.min(1, Math.max(0, (v - w[0]) / (w[1] - w[0]))) : 0;
+        const droneA = useInsp ? 1 - win(inspect.isolate, q) : 1, copyA = useInsp && inspect.copies ? win(inspect.copies.fade, q) : 0;
+        if (droneA !== shownDroneA) { shownDroneA = droneA; edgeMat.uniforms.uDroneA.value = droneA; droneRibMat.uniforms.uOpacity.value = (+CONFIG.ribOpacity) * droneA;
+          const on = droneA > 0.001; if (on !== droneOn) { droneOn = on; for (const m of solids) if (m.userData.kind === 'rest' || m.userData.kind === 'motor') m.visible = on; if (droneRibs) droneRibs.visible = on; if (grid) grid.visible = true; } }
+        if (copyA !== shownCopyA) { shownCopyA = copyA; edgeMat.uniforms.uCopyA.value = copyA; copies.mats.forEach((m, i) => { m.uniforms.uOpacity.value = (+CONFIG.ribOpacity) * copyA * Math.max(0, 1 - (i + 1) / (copies.n + 1)); });
+          const on = copyA > 0.001; if (on !== copies.shown) { copies.shown = on; for (const m of copies.meshes) m.visible = on; for (const m of copies.ribs) m.visible = on; } } }
       // the hotspots: the anchor projected to the frame, the leader out from it, the label at the leader's end
       if (hot && s) { const [dx, dy] = inspect.leader || [0, -72], d = +inspect.dot || 6, v = new THREE.Vector3();
         hot.shown = true; inspect.poses.forEach((p, k) => { const it = hot.items[k], o = s.hots[k], os = o.toFixed(3); if (it.shown !== os) { it.shown = os; it.g.style.opacity = os; it.label.style.opacity = os; } if (o <= 0) return;
@@ -509,8 +539,8 @@
       T.w = Math.ceil(W / T.nx); T.h = Math.ceil(H / T.ny); T.g = 3; T.PR = PR; T.S = S; T.W = W; T.H = H;
       const rw = Math.round((T.w + 2 * T.g) * S), rh = Math.round((T.h + 2 * T.g) * S); rt.setSize(rw, rh); edgeMat.uniforms.uRes.value.set(rw, rh);
       edgeMat.uniforms.uWidth.value = Math.max(0.5, (+CONFIG.lineWidth || 1) * S * PR / 1.5);
-      ribMat.uniforms.uWidth.value = Math.max(0.3, (+CONFIG.ribWidth || 1) * PR); gridMat.uniforms.uWidth.value = Math.max(0.3, (+CONFIG.gridWidth || 1) * PR); ribMat.uniforms.uOpacity.value = +CONFIG.ribOpacity;
-      for (const m of lineMats) { if (m !== ribMat && m !== gridMat) m.uniforms.uWidth.value = Math.max(0.3, (+CONFIG.gridWidth || 1) * PR); m.uniforms.uRes.value.set(W, H); m.uniforms.uHalf.value = m.uniforms.uWidth.value / 2 + 1; }
+      for (const m of ribMats) m.uniforms.uWidth.value = Math.max(0.3, (+CONFIG.ribWidth || 1) * PR); gridMat.uniforms.uWidth.value = Math.max(0.3, (+CONFIG.gridWidth || 1) * PR); ribMat.uniforms.uOpacity.value = +CONFIG.ribOpacity;
+      for (const m of lineMats) { if (!ribMats.has(m) && m !== gridMat) m.uniforms.uWidth.value = Math.max(0.3, (+CONFIG.gridWidth || 1) * PR); m.uniforms.uRes.value.set(W, H); m.uniforms.uHalf.value = m.uniforms.uWidth.value / 2 + 1; }
       if (!trackEl) progress = progressTarget = pos = posTarget = 1; place();
     }
     function render() {
@@ -557,7 +587,7 @@
     function applyColors() {
       const next = {}; for (const k of COLOR_KEYS) next[k] = resolveColor(host, RAW[k]);
       const sig = JSON.stringify(next); if (sig === lastColors) return; lastColors = sig; Object.assign(CONFIG, next);
-      host.style.background = CONFIG.background; faceMat.color.set(CONFIG.face); if (hot) for (const it of hot.items) { it.dot.setAttribute('fill', CONFIG.primary); it.path.setAttribute('stroke', CONFIG.primary); it.label.style.color = CONFIG.primary; } gridMat.uniforms.uColor.value.set(CONFIG.gridColor); for (const m of lineMats) { m.uniforms.uBg.value.set(CONFIG.face); if (m !== ribMat && m !== gridMat) m.uniforms.uColor.value.set(CONFIG.secondary); } edgeMat.uniforms.uC2.value.set(CONFIG.secondary); motorColor(ease(progress)); if (!grid) buildGrid(); dirty = true;
+      host.style.background = CONFIG.background; faceMat.color.set(CONFIG.face); if (hot) for (const it of hot.items) { it.dot.setAttribute('fill', CONFIG.primary); it.path.setAttribute('stroke', CONFIG.primary); it.label.style.color = CONFIG.primary; } gridMat.uniforms.uColor.value.set(CONFIG.gridColor); for (const m of lineMats) { m.uniforms.uBg.value.set(CONFIG.face); if (!ribMats.has(m) && m !== gridMat) m.uniforms.uColor.value.set(CONFIG.secondary); } edgeMat.uniforms.uC2.value.set(CONFIG.secondary); motorColor(ease(progress)); if (!grid) buildGrid(); dirty = true;
     }
     buildHotspots(); applyColors();
     const themeWatch = setInterval(() => { if (alive) applyColors(); }, 400);
@@ -579,5 +609,5 @@
       .then(() => new Promise((res, rej) => new global.THREE.GLTFLoader().load(CONFIG.model || (HERE + 'heavy_lift_drone_model.glb'), res, undefined, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.24.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '3.0.0' };
 })(typeof window !== 'undefined' ? window : this);
