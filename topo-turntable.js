@@ -34,6 +34,7 @@
     "intervalRevealMode": "progressive",
     "microInterval": 10,
     "contourLevels": 2,
+    "fpsCoarse": 30,             // on touch devices (a coarse pointer): at most this many frames a second, so the page's own scrolling keeps its frames
     "coarseInterval": 100,
     "coarseColor": "var(--topo-coarse, var(--topo-muted, #3f4040))",
     "coarseOpacity": 0.7,
@@ -439,6 +440,7 @@
     let focusKey='';
     function applyFocus(t){ const f=focusAt(t), w=host.clientWidth||1, h=host.clientHeight||1; const key=[f.x.toFixed(4),f.y.toFixed(4),w,h].join('|'); if(key===focusKey) return; focusKey=key;
       if(Math.abs(f.x-0.5)<1e-4 && Math.abs(f.y-0.5)<1e-4){ if(camera.view) camera.clearViewOffset(); } else camera.setViewOffset(w,h,(0.5-f.x)*w,(0.5-f.y)*h,w,h); }
+    let sizedW=0, sizedH=0;
     function fit(){
       if(camera.view) camera.clearViewOffset(); focusKey='';   // measure on the plain, centred projection
       ensureBox();
@@ -446,7 +448,9 @@
       if(!w||!h){ pendingFit=true; return; }
       pendingFit=false;
       const pr=Math.min(devicePixelRatio||1,PR_CAP); if(pr!==renderer.getPixelRatio()) renderer.setPixelRatio(pr);
-      renderer.setSize(w,h,false); camera.aspect=w/h;
+      if(w!==sizedW||h!==sizedH){ sizedW=w; sizedH=h; renderer.setSize(w,h,false); }   // only on a real change: setSize clears the canvas, and a phone's toolbar fires resize on every scroll
+      for(const l of labels) l.em=l.el.offsetHeight||14;   // measured here, not every frame
+      camera.aspect=w/h;
       dist=R*3; pol=polFinal(); pivot.copy(pivotHome); camera.fov=CONFIG.lens; camera.updateProjectionMatrix();
       const margin=1/(CONFIG.fitMargin||1.1);
       const measure=()=>{ let minX=1e9,maxX=-1e9,minY=1e9,maxY=-1e9; for(let k=0;k<24;k++){ placeCam(k/24*Math.PI*2); for(const p of fitPts){ const q=p.clone().project(camera); if(q.x<minX)minX=q.x; if(q.x>maxX)maxX=q.x; if(q.y<minY)minY=q.y; if(q.y>maxY)maxY=q.y; } } return {minX,maxX,minY,maxY}; };
@@ -550,8 +554,9 @@
     if(global.MutationObserver){ const mo=new MutationObserver(applyColors); for(const el of [document.documentElement, document.body]) if(el) mo.observe(el,{attributes:true,attributeFilter:['class','style','data-theme','data-wf-theme']}); }
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyColors);
     let last=performance.now(), lastVw=1e7;
+    let lastFrame=0;   // on touch devices the loop runs at most fpsCoarse frames a second
     function frame(now){
-      if(!alive) return; requestAnimationFrame(frame); const dt=(now-last)/1000; last=now; if(pendingFit) fit(); if(!visible) return;
+      if(!alive) return; requestAnimationFrame(frame); if(coarse && now-lastFrame<1000/(+CONFIG.fpsCoarse||30)-2) return; lastFrame=now; const dt=(now-last)/1000; last=now; if(pendingFit) fit(); if(!visible) return;
       if(AP){
         AP.readScroll();
         const k=Math.min(1,Math.max(0,+CONFIG.approachDamping||0)), f=(reduced||k>=1)?1:1-Math.pow(1-k,Math.max(0,Math.min(0.1,dt))*60);
@@ -578,11 +583,15 @@
       lastVw=layerFade();
       renderer.render(scene,camera);
       const W=host.clientWidth, Hh=host.clientHeight;
-      for(const l of labels){ const p=l.world.clone().project(camera); const a=p.z>1?0:l.fade(lastVw); l.el.style.opacity=a; if(l.text) l.el.firstChild.style.opacity=l.text(lastVw); let sx=(p.x+1)/2*W, sy=(1-p.y)/2*Hh;
+      // the labels are placed with a transform (no layout), and each style is written only when it changes
+      for(const l of labels){ const p=l.world.clone().project(camera); const a=p.z>1?0:l.fade(lastVw); const as=(+a).toFixed(3); if(l.lastA!==as){ l.lastA=as; l.el.style.opacity=as; }
+        if(l.text){ const ts=(+l.text(lastVw)).toFixed(3); if(l.lastT!==ts){ l.lastT=ts; l.el.firstChild.style.opacity=ts; } }
+        let sx=(p.x+1)/2*W, sy=(1-p.y)/2*Hh, rot='';
         if(l.kind==='ground'){ const e=l.east.clone().project(camera), n=l.north.clone().project(camera); const ex=(e.x-p.x)*W, ey=-(e.y-p.y)*Hh, nx=(n.x-p.x)*W, ny=-(n.y-p.y)*Hh, nl=Math.hypot(nx,ny)||1;
           let th=Math.atan2(ey,ex); if(Math.cos(th)<0) th+=Math.PI;   // never upside down: flip when the east vector points left
-          const em=l.el.offsetHeight||14; sx+=nx/nl*em*l.offset; sy+=ny/nl*em*l.offset; l.el.style.transform='translate(-50%,-50%) rotate('+th.toFixed(4)+'rad)'; }
-        l.el.style.left=sx+'px'; l.el.style.top=sy+'px'; }
+          const em=l.em||l.el.offsetHeight||14; sx+=nx/nl*em*l.offset; sy+=ny/nl*em*l.offset; rot=' rotate('+th.toFixed(4)+'rad)'; }
+        if(!l.placed){ l.placed=true; l.el.style.left='0px'; l.el.style.top='0px'; l.anchor=l.el.classList.contains('topo-label--place')?' translate(-50%,-50%)':' translate(-50%,-100%)'; }   // the class's own anchor, kept: places centred, the county hung from its dot
+        const tr='translate('+sx.toFixed(1)+'px,'+sy.toFixed(1)+'px)'+l.anchor+rot; if(l.lastTr!==tr){ l.lastTr=tr; l.el.style.transform=tr; } }
     }
     requestAnimationFrame(frame);
     requestAnimationFrame(()=>setTimeout(()=>{ if(!alive) return; buildRegion(); setTimeout(()=>{ if(alive) buildLocal(); },0); },0));
@@ -603,5 +612,5 @@
   }
   function autoMount(){ document.querySelectorAll('[data-topo]').forEach(el=>{ if(el.dataset.topoMounted) return; el.dataset.topoMounted='1'; let cfg={}; try{ cfg=JSON.parse(el.dataset.config||'{}'); }catch(e){} mount(el,cfg); }); }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', autoMount); else autoMount();
-  global.TopoTurntable = { mount, defaults: DEFAULTS, version: '2.0.0' };
+  global.TopoTurntable = { mount, defaults: DEFAULTS, version: '2.1.0' };
 })(window);

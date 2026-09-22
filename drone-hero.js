@@ -50,7 +50,7 @@
     startPoint: { x: 0.5, y: 0.5 },    // where the whole drone's centre sits at the start; y above 1 puts it below the frame, so only its top peeks in
     startPointNarrow: null,            // … on narrow screens (null = the same)
     breakpoint: 991,
-    progressVar: '--drone-progress',   // a CSS custom property the eased, damped progress (0-1) is written to on the track and the host, so the page's own layout can follow the move; '' = none
+    progressVar: '--drone-progress',   // a CSS custom property the eased, damped progress (0-1) is written to on the track and the host, so the page's own layout can follow the move; '' = none. Not written up to `breakpoint`
     flag: false,               // an American flag hung behind the drone, in the same line work, waving slowly as if in a light breeze; true = on
     flagWidth: 37,             // its width in the model's units (the drone spans about 7.5); height follows the 1:1.9 ratio
     flagBottom: 2, flagZ: -22, flagX: 0,   // where its bottom edge hangs, how far back it is, and its centre's x
@@ -389,8 +389,9 @@
     // the inspection's progress: how far the end section has scrolled past the canvas's top, over its extra height
     const inspect = CONFIG.inspect ? Object.assign({}, INSPECT, CONFIG.inspect) : null;
     const readInspect = () => { if (!inspect || !endEl) return 0; const er = endEl.getBoundingClientRect(), hr = host.getBoundingClientRect(); return Math.min(1, Math.max(0, (hr.top - er.top) / Math.max(1, er.height - hr.height))); };
-    // a CSS custom property on the host and the track, in steps of 0.01 and only when it changes: each write invalidates the track's styles
-    const varLast = {}; const setVar = (name, v) => { if (!name) return; const s = v.toFixed(2); if (varLast[name] === s) return; varLast[name] = s; host.style.setProperty(name, s); if (trackEl) trackEl.style.setProperty(name, s); };
+    // a CSS custom property on the host and the track, in steps of 0.01 and only when it changes: each write invalidates the track's
+    // styles, and on phones a style change round a sticky element can make it re-sync mid-scroll — so not up to `breakpoint`
+    const varLast = {}; const setVar = (name, v) => { if (!name || isNarrow()) return; const s = v.toFixed(2); if (varLast[name] === s) return; varLast[name] = s; host.style.setProperty(name, s); if (trackEl) trackEl.style.setProperty(name, s); };
     const isNarrow = () => !!(global.matchMedia && global.matchMedia('(max-width: ' + (+CONFIG.breakpoint || 991) + 'px)').matches);
     const endPoint = () => (isNarrow() && CONFIG.pointNarrow) || CONFIG.point || { x: 0.5, y: 0.5 };
     const zoomDist = z => motorH / (2 * Math.tan((+CONFIG.fov || 30) * D2R / 2) * Math.max(0.05, z || 0.36));
@@ -447,7 +448,7 @@
       if (flag) { const w = CONFIG.flagFade, f = Array.isArray(w) && w.length === 2 ? 0 : 1; flag.mat.uniforms.uOpacity.value = (+CONFIG.flagOpacity || 0.85) * f; edgeMat.uniforms.uFlagA.value = f; }
       // the hotspots: the anchor projected to the frame, the leader out from it, the label at the leader's end
       if (hot) { const [dx, dy, run] = inspect.leader || [-64, -40, -56], v = new THREE.Vector3();
-        inspect.poses.forEach((p, k) => { const it = hot.items[k], o = s.hots[k]; it.g.style.opacity = o.toFixed(3); it.label.style.opacity = o.toFixed(3); if (o <= 0) return;
+        hot.shown = true; inspect.poses.forEach((p, k) => { const it = hot.items[k], o = s.hots[k], os = o.toFixed(3); if (it.shown !== os) { it.shown = os; it.g.style.opacity = os; it.label.style.opacity = os; } if (o <= 0) return;
           v.copy(anchorOf(p)).project(camera); const x = (v.x + 1) / 2 * w, y = (1 - v.y) / 2 * h, ex = x + dx, ey = y + dy, lx = ex + run;
           it.dot.setAttribute('cx', x.toFixed(1)); it.dot.setAttribute('cy', y.toFixed(1)); it.ring.setAttribute('cx', x.toFixed(1)); it.ring.setAttribute('cy', y.toFixed(1));
           it.path.setAttribute('d', 'M' + x.toFixed(1) + ' ' + y.toFixed(1) + ' L' + ex.toFixed(1) + ' ' + ey.toFixed(1) + ' L' + lx.toFixed(1) + ' ' + ey.toFixed(1));
@@ -468,17 +469,19 @@
       const pe = endPoint(), ps = (isNarrow() && CONFIG.startPointNarrow) || CONFIG.startPoint || { x: 0.5, y: 0.5 }, px = ps.x + (pe.x - ps.x) * e, py = ps.y + (pe.y - ps.y) * e;
       aim(az, el, dist, px, py);
       fadeGrid(); motorColor(e);
-      if (hot) for (const it of hot.items) { it.g.style.opacity = '0'; it.label.style.opacity = '0'; }
+      if (hot && hot.shown) { hot.shown = false; for (const it of hot.items) { it.g.style.opacity = '0'; it.label.style.opacity = '0'; } }
       if (rows === null && inspect) rows = rowEls(); if (activeRow !== -1 && rows) { activeRow = -1; for (const r of rows) r.el.classList.remove(inspect.activeClass || 'is-active'); }
       if (flag) { const w = CONFIG.flagFade, f = Array.isArray(w) && w.length === 2 && w[1] > w[0] ? 1 - Math.min(1, Math.max(0, (e - w[0]) / (w[1] - w[0]))) : 1; flag.mat.uniforms.uOpacity.value = (+CONFIG.flagOpacity || 0.85) * f; edgeMat.uniforms.uFlagA.value = f; }
       dirty = true;
       setVar(CONFIG.progressVar, e);
     }
+    const sized = { PR: 0, w: 0, h: 0 };
     function frame() {
       w = host.clientWidth || 1; h = host.clientHeight || 1; camera.aspect = w / h; camera.fov = +CONFIG.fov || 30;
       // the canvas at the device's pixel ratio (capped); the edge pass at `supersample` times that, in as many tiles as
       // the pixel budget (and the largest texture) asks for, each with a guard band so the lines run across tile edges
-      const PR = Math.min(devicePixelRatio || 1, coarse ? (+CONFIG.pixelRatioCapCoarse || 1.5) : (+CONFIG.pixelRatioCap || 2)); renderer.setPixelRatio(PR); renderer.setSize(w, h, false);
+      const PR = Math.min(devicePixelRatio || 1, coarse ? (+CONFIG.pixelRatioCapCoarse || 1.5) : (+CONFIG.pixelRatioCap || 2));
+      if (PR !== sized.PR || w !== sized.w || h !== sized.h) { sized.PR = PR; sized.w = w; sized.h = h; renderer.setPixelRatio(PR); renderer.setSize(w, h, false); }   // only on a real change: setSize clears the canvas (a phone's toolbar fires resize on every scroll)
       const S = Math.max(1, +CONFIG.supersample || 1), W = Math.round(w * PR), H = Math.round(h * PR), maxT = Math.min(8192, renderer.capabilities.maxTextureSize || 8192), budget = +CONFIG.pixelBudget || 8e6;
       T.nx = Math.max(1, Math.ceil(W * S / maxT)); T.ny = Math.max(1, Math.ceil(H * S / maxT), Math.ceil(W * S * H * S / (budget * T.nx)));
       T.w = Math.ceil(W / T.nx); T.h = Math.ceil(H / T.ny); T.g = 3; T.PR = PR; T.S = S; T.W = W; T.H = H;
@@ -556,5 +559,5 @@
       .then(() => new Promise((res, rej) => new global.THREE.GLTFLoader().load(CONFIG.model || (HERE + 'heavy_lift_drone_model.glb'), res, undefined, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.15.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.16.0' };
 })(typeof window !== 'undefined' ? window : this);
