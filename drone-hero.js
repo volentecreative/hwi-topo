@@ -57,6 +57,7 @@
     flagSway: 0.04,            // the wave's amplitude as a share of the flag's height
     flagSeconds: 16,           // roughly one wave cycle every so many seconds
     flagOpacity: 0.85,         // the stripes' and stars' opacity (their colour is the secondary)
+    flagFade: [0.5, 0.85],     // [from, to]: the window of the path's progress over which the flag fades away, so the close-up never shows its edge cut across the frame; null = never
     primaryIn: null,           // [from, to]: the window of the path's progress over which the motors go from the secondary colour to the primary (null = primary throughout)
     exitVar: '--drone-exit',           // a CSS custom property that runs 0-1 over the last viewport of the track's scroll, as the pinned canvas begins to leave with the track's end — for fading it out; '' = none
     // the start of the path: the whole aircraft, centred, level, from the front
@@ -125,12 +126,12 @@
   const ID_VERT = 'varying vec3 vN; void main(){ vN = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }';
   const ID_FRAG = 'uniform float uId; varying vec3 vN; void main(){ gl_FragColor = vec4(normalize(vN) * 0.5 + 0.5, uId); }';
   const EDGE_FRAG = `
-    uniform sampler2D tN, tD; uniform vec2 uRes; uniform vec4 uTile; uniform float uNear, uFar, uWidth, uDepthT, uNormT; uniform vec3 uC1, uC2;
+    uniform sampler2D tN, tD; uniform vec2 uRes; uniform vec4 uTile; uniform float uNear, uFar, uWidth, uDepthT, uNormT, uFlagA; uniform vec3 uC1, uC2;
     float lin(float z){ float zn = 2.0 * z - 1.0; return 2.0 * uNear * uFar / (uFar + uNear - zn * (uFar - uNear)); }
     // the line at one point of the (supersampled) pass: 0 = none, 1 = a line, and which colour it takes
     float edgeAt(vec2 uv, out vec3 col){
       vec2 px = uWidth / uRes; vec4 c = texture2D(tN, uv); float d = lin(texture2D(tD, uv).x); vec3 n = c.xyz * 2.0 - 1.0;
-      col = c.a > 0.75 ? uC1 : uC2;
+      col = c.a > 0.75 ? uC1 : uC2; float fa = (c.a > 0.35 && c.a < 0.55) ? uFlagA : 1.0;   // the flag's ids sit in the middle range, so its lines can fade
       if (c.a < 0.002) return 0.0;                               // background (ids start at 1/255): lines are drawn from the object's side
       float e = 0.0;
       for (int i = 0; i < 2; i++) {                              // each axis: the two neighbours either side
@@ -150,7 +151,7 @@
             float key = dot(n, vec3(0.3, 0.59, 0.11)), keyn = dot(nn, vec3(0.3, 0.59, 0.11));
             e = max(e, key >= keyn ? smoothstep(uNormT, uNormT * 2.0, 1.0 - dot(n, nn)) : 0.0); } }
       }
-      return e;
+      return e * fa;
     }
     void main(){
       // this canvas pixel's place in the tile's pass (uTile: the tile's origin and size in canvas pixels), then four
@@ -213,14 +214,14 @@
       const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(A, 3)); g.setAttribute('pointA', new THREE.BufferAttribute(A, 3)); g.setAttribute('pointB', new THREE.BufferAttribute(B, 3)); g.setAttribute('corner', new THREE.BufferAttribute(C, 2)); g.setIndex(idx);
       const m = new THREE.Mesh(g, mat); m.frustumCulled = false; m.userData.isLines = true; return m; };
     const solids = []; let ids = [0, 255];   // part ids: the rest count up from 1, the focused motor's casing down from 255 (the edge pass colours ids above 191 primary)
-    const solid = (g, mine) => { const m = new THREE.Mesh(g, faceMat); const id = mine ? ids[1]-- : ++ids[0];
+    const solid = (g, mine, fixedId) => { const m = new THREE.Mesh(g, faceMat); const id = fixedId || (mine ? ids[1]-- : ++ids[0]);
       m.userData.idMat = new THREE.ShaderMaterial({ vertexShader: ID_VERT, fragmentShader: ID_FRAG, uniforms: { uId: { value: id / 255 } } }); solids.push(m); scene.add(m); return m; };
     // the edge pass's target and quad
     const isGL2 = renderer.capabilities.isWebGL2;
     const depthTex = new THREE.DepthTexture(1, 1); depthTex.type = isGL2 ? THREE.UnsignedIntType : THREE.UnsignedShortType;
     const rt = new THREE.WebGLRenderTarget(1, 1, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthTexture: depthTex, depthBuffer: true, stencilBuffer: false });
     const edgeMat = new THREE.ShaderMaterial({ transparent: true, depthTest: false, depthWrite: false, blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendEquation: THREE.AddEquation, vertexShader: 'void main(){ gl_Position = vec4(position.xy, 0.0, 1.0); }', fragmentShader: EDGE_FRAG,
-      uniforms: { tN: { value: rt.texture }, tD: { value: depthTex }, uRes: { value: new THREE.Vector2(1, 1) }, uTile: { value: new THREE.Vector4(0, 0, 1, 1) }, uNear: { value: camera.near }, uFar: { value: camera.far }, uWidth: { value: 1 }, uDepthT: { value: +CONFIG.depthEdge || 0.012 }, uNormT: { value: +CONFIG.normalEdge || 0.25 }, uC1: { value: new THREE.Color(CONFIG.primary) }, uC2: { value: new THREE.Color(CONFIG.secondary) } } });
+      uniforms: { tN: { value: rt.texture }, tD: { value: depthTex }, uRes: { value: new THREE.Vector2(1, 1) }, uTile: { value: new THREE.Vector4(0, 0, 1, 1) }, uNear: { value: camera.near }, uFar: { value: camera.far }, uWidth: { value: 1 }, uDepthT: { value: +CONFIG.depthEdge || 0.012 }, uNormT: { value: +CONFIG.normalEdge || 0.25 }, uFlagA: { value: 1 }, uC1: { value: new THREE.Color(CONFIG.primary) }, uC2: { value: new THREE.Color(CONFIG.secondary) } } });
     // the quad the lines are drawn with covers one tile of the canvas at a time
     const quadGeo = new THREE.BufferGeometry(); quadGeo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(12), 3)); quadGeo.setIndex([0, 1, 2, 0, 2, 3]);
     const quadScene = new THREE.Scene(), quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1); const quad = new THREE.Mesh(quadGeo, edgeMat); quad.frustumCulled = false; quadScene.add(quad);
@@ -287,7 +288,7 @@
       const W = +CONFIG.flagWidth || 37, H = W / 1.9, X0 = (+CONFIG.flagX || 0) - W / 2, Y0 = +CONFIG.flagBottom || 0, Z0 = +CONFIG.flagZ || -22, A = H * (+CONFIG.flagSway || 0.04);
       flagReach = Math.abs(Z0) + Math.hypot(W, H);
       const NX = 48, NY = 26, cloth = new THREE.PlaneGeometry(W, H, NX, NY); cloth.translate(X0 + W / 2, Y0 + H / 2, Z0);
-      const clothBase = Float32Array.from(cloth.attributes.position.array); const clothMesh = solid(cloth, false); clothMesh.frustumCulled = false; tris += cloth.index.count / 3;
+      const clothBase = Float32Array.from(cloth.attributes.position.array); const clothMesh = solid(cloth, false, 110); clothMesh.frustumCulled = false;   // id 110: the middle range the edge pass fades tris += cloth.index.count / 3;
       const seg = [], uv = [];   // the lines: base points as (u, v) on the flag, u from the hoist, v from the bottom
       const add = (u0, v0, u1, v1) => { seg.push(0, 0, 0, 0, 0, 0); uv.push(u0, v0, u1, v1); };
       const poly = (pts, n) => { for (let i = 0; i < pts.length; i++) { const a = pts[i], b = pts[(i + 1) % pts.length]; for (let k = 0; k < n; k++) add(a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n, a[0] + (b[0] - a[0]) * (k + 1) / n, a[1] + (b[1] - a[1]) * (k + 1) / n); } };
@@ -305,7 +306,7 @@
         out[2] = A * (0.62 * Math.sin(u / W * 4.2 - ph + v / H * 1.3) + 0.38 * Math.sin(u / W * 7.5 + ph * 0.61 + 1.7)) * (0.15 + 0.85 * w) * (0.55 + 0.45 * u / W);
       };
       const d = [0, 0, 0];
-      flag = { update(t) {
+      flag = { mat: flagMat, update(t) {
         const p = cloth.attributes.position; for (let i = 0; i < p.count; i++) { const bx = clothBase[i * 3], by = clothBase[i * 3 + 1]; wave(bx - X0, by - Y0, t, d); p.setXYZ(i, bx + d[0], by + d[1], clothBase[i * 3 + 2] + d[2]); } p.needsUpdate = true; cloth.computeVertexNormals();
         const A_ = lines.geometry.attributes.pointA, B_ = lines.geometry.attributes.pointB, P_ = lines.geometry.attributes.position, n = uv.length / 4;
         for (let i = 0; i < n; i++) { const u0 = uv[i * 4], v0 = uv[i * 4 + 1], u1 = uv[i * 4 + 2], v1 = uv[i * 4 + 3];
@@ -368,7 +369,9 @@
       const narrow = global.matchMedia && global.matchMedia('(max-width: ' + (+CONFIG.breakpoint || 991) + 'px)').matches;
       const pe = (narrow && CONFIG.pointNarrow) || CONFIG.point || { x: 0.5, y: 0.5 }, ps = (narrow && CONFIG.startPointNarrow) || CONFIG.startPoint || { x: 0.5, y: 0.5 }, px = ps.x + (pe.x - ps.x) * e, py = ps.y + (pe.y - ps.y) * e;
       camera.setViewOffset(w, h, (0.5 - px) * w, (0.5 - py) * h, w, h); camera.updateProjectionMatrix(); camera.updateMatrixWorld();
-      fadeGrid(); motorColor(e); dirty = true;
+      fadeGrid(); motorColor(e);
+      if (flag) { const w = CONFIG.flagFade, f = Array.isArray(w) && w.length === 2 && w[1] > w[0] ? 1 - Math.min(1, Math.max(0, (e - w[0]) / (w[1] - w[0]))) : 1; flag.mat.uniforms.uOpacity.value = (+CONFIG.flagOpacity || 0.85) * f; edgeMat.uniforms.uFlagA.value = f; }
+      dirty = true;
       if (CONFIG.progressVar) { const v = e.toFixed(4); host.style.setProperty(CONFIG.progressVar, v); if (trackEl) trackEl.style.setProperty(CONFIG.progressVar, v); }
     }
     function frame() {
@@ -451,5 +454,5 @@
       .then(() => new Promise((res, rej) => new global.THREE.GLTFLoader().load(CONFIG.model || (HERE + 'heavy_lift_drone_model.glb'), res, undefined, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.11.1' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.12.0' };
 })(typeof window !== 'undefined' ? window : this);

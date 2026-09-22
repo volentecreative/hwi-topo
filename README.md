@@ -401,7 +401,8 @@ over which the motors go from the secondary colour to the primary; null = primar
 `flag` (false: an American flag hung behind the drone in the same line work, its cloth occluding like the
 rest and its stripes, canton and stars drawn on the surface, waving slowly as if in a light breeze and moving
 in perspective with the camera), with `flagWidth` (37 model units), `flagBottom` (2), `flagZ` (−22), `flagX`
-(0), `flagSway` (0.04 of its height), `flagSeconds` (16 per wave) and `flagOpacity` (0.85); `lineWidth` (1px), `depthEdge` (0.012) and
+(0), `flagSway` (0.04 of its height), `flagSeconds` (16 per wave), `flagOpacity` (0.85) and `flagFade` (`[0.5, 0.85]`: the window of the path's
+progress over which the flag fades away, so the close-up never shows its edge cut across the frame; null = never); `lineWidth` (1px), `depthEdge` (0.012) and
 `normalEdge` (0.25);
 `supersample` (2: the edge pass runs at twice the canvas resolution and averages, so the lines are
 antialiased; the faces, ribs and grid are multisampled), `pixelBudget` (8 million pixels: the most the
