@@ -225,7 +225,7 @@
     const partOf = name => { const m = /^(Motor[ _]Base|Motor[ _]Coil|Motor[ _]Cap|Motor[ _]Shaft|Prop[ _]Hub|Propeller|Arm)[ _](FR|FL|BR|BL)(?:[ _](2))?$/.exec(name || ''); return m ? { part: m[1].replace('_', ' '), pos: m[2] + (m[3] ? ' 2' : '') } : null; };
     const skip = name => /^mesh_\d+_instance/.test(name || '');
     gltf.scene.updateMatrixWorld(true);
-    const motorBox = new THREE.Box3(), armBox = new THREE.Box3(), all = new THREE.Box3(); const coils = {};   // per motor: its tallest casing part's box, for the ribs
+    const motorBox = new THREE.Box3(), armBox = new THREE.Box3(), all = new THREE.Box3(); const coils = {};   // per motor: its housing (the Motor Base): box, centre, radius and the straight wall's y-range, for the ribs and rims
     const hubs = {}, propInfo = {};
     const meshes = []; gltf.scene.traverse(o => { if (o.isMesh && !skip(o.name)) meshes.push(o); });
     // the skids (the long tubes), so the struts can be carried down to them
@@ -245,7 +245,11 @@
       const g = o.geometry.clone(); g.applyMatrix4(o.matrixWorld); extendLeg(o, g); if (!g.attributes.normal) g.computeVertexNormals(); g.computeBoundingBox(); all.union(g.boundingBox);
       const info = partOf(o.name), isFocus = !!(info && info.pos === key);
       const mine = !!(info && /^Motor/.test(info.part));
-      if (mine) { if (isFocus) motorBox.union(g.boundingBox); const hh = g.boundingBox.max.y - g.boundingBox.min.y; if (info.part !== 'Motor Shaft' && !(coils[info.pos] && coils[info.pos].h >= hh)) coils[info.pos] = { h: hh, box: g.boundingBox.clone() }; }
+      if (mine) { if (isFocus) motorBox.union(g.boundingBox);
+        if (info.part === 'Motor Base') {   // the housing: its widest radius, and the y-range of the straight wall at that radius (inside any fillets at the ends)
+          const b = g.boundingBox, c = new THREE.Vector3(); b.getCenter(c); const p = g.attributes.position; let r = 0; for (let i = 0; i < p.count; i++) r = Math.max(r, Math.hypot(p.getX(i) - c.x, p.getZ(i) - c.z));
+          let y0 = Infinity, y1 = -Infinity; for (let i = 0; i < p.count; i++) if (Math.hypot(p.getX(i) - c.x, p.getZ(i) - c.z) >= r * 0.995) { y0 = Math.min(y0, p.getY(i)); y1 = Math.max(y1, p.getY(i)); }
+          if (!(y1 > y0)) { y0 = b.min.y; y1 = b.max.y; } coils[info.pos] = { box: b.clone(), c, r, y0, y1 }; } }
       if (isFocus && info.part === 'Arm') armBox.union(g.boundingBox);
       if (info && info.part === 'Prop Hub') hubs[info.pos] = g.boundingBox.clone();
       if (info && info.part === 'Propeller') { propInfo[info.pos] = g.boundingBox.clone(); if (CONFIG.props !== 'model') continue; }
@@ -262,9 +266,12 @@
       props.push({ mesh: m, dir: quad * (ring ? -1 : 1), phase: Math.random() * Math.PI * 2 });
     }
     // the motors' ribbing: vertical lines round each one's tallest casing part, just off its surface
-    if (CONFIG.ribs > 0) { const a = [];
-      for (const pos of Object.keys(coils)) { const cb = coils[pos].box, c = new THREE.Vector3(); cb.getCenter(c); const r = Math.max(cb.max.x - cb.min.x, cb.max.z - cb.min.z) / 2 * 1.004;
-        for (let k = 0; k < CONFIG.ribs; k++) { const t = (k + 0.5) / CONFIG.ribs * Math.PI * 2, x = c.x + Math.cos(t) * r, z = c.z + Math.sin(t) * r; a.push(x, cb.min.y, z, x, cb.max.y, z); } }
+    // the housings' ribbing: vertical lines along each one's straight wall, just off its surface, and a rim line round
+    // each end of the wall (the model rounds those edges, so the edge pass finds no crease there)
+    if (CONFIG.ribs > 0) { const a = [], N = 96;
+      for (const pos of Object.keys(coils)) { const { c, y0, y1 } = coils[pos], r = coils[pos].r * 1.004;
+        for (let k = 0; k < CONFIG.ribs; k++) { const t = (k + 0.5) / CONFIG.ribs * Math.PI * 2, x = c.x + Math.cos(t) * r, z = c.z + Math.sin(t) * r; a.push(x, y0, z, x, y1, z); }
+        for (const y of [y0, y1]) for (let k = 0; k < N; k++) { const t0 = k / N * Math.PI * 2, t1 = (k + 1) / N * Math.PI * 2; a.push(c.x + Math.cos(t0) * r, y, c.z + Math.sin(t0) * r, c.x + Math.cos(t1) * r, y, c.z + Math.sin(t1) * r); } }
       if (a.length) scene.add(lineMesh(a, ribMat));
     }
     // ---- the two ends of the path
@@ -402,5 +409,5 @@
       .then(() => new Promise((res, rej) => new global.THREE.GLTFLoader().load(CONFIG.model || (HERE + 'heavy_lift_drone_model.glb'), res, undefined, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.9.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '2.10.0' };
 })(typeof window !== 'undefined' ? window : this);
