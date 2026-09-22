@@ -370,7 +370,8 @@ into the distance). Each pose has a window of that scroll (`windows`; the first 
 of the intro) in which its feature row is active (`[data-inspect="1"]`.. rows get `is-active`, each row gets
 `--inspect-fill`, 0-1 through its window, for a progress bar, and a `drone:reach` event as the scroll reaches
 its window, `drone:unreach` on the way back up past it; with `click` a click on a row scrolls the page to its
-window); the camera passes through the pose at the window's centre (or the pose's `at`), and a pose can
+window); the camera passes through the pose at the window's centre (or the pose's `at`, or rests on it over the pose's
+`hold` window, as the profile does while the copies appear), and a pose can
 shift the look-at point toward the drone's centre (`centre`) or elsewhere in the frame (`point`); a pose
 value of null is the arrival's. With `callouts`, each window also shows a callout on the housing (a straight
 leader to a small square with the pose's `label` above it, as the topo map's county marker; `leader`, `dot`,
