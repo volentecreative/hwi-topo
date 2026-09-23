@@ -286,11 +286,18 @@
 
     // ---- the model, baked into world space; parts are told apart by name (the loader writes spaces as underscores)
     const key = String(CONFIG.focus || 'FR').trim(), keyBase = key.replace(/ 2$/, '');
-    const partOf = name => { const m = /^(Motor[ _]Base|Motor[ _]Coil|Motor[ _]Cap|Motor[ _]Shaft|Prop[ _]Hub|Propeller|Arm)[ _](FR|FL|BR|BL)(?:[ _](2))?$/.exec(name || ''); return m ? { part: m[1].replace('_', ' '), pos: m[2] + (m[3] ? ' 2' : '') } : null; };
+    // which part of which motor a mesh is. Two namings are read: parts named for their position ("Motor Base FL", "Arm FR",
+    // "Propeller BL 2" for the lower ring of a coaxial pair), and parts grouped under an "Arm FL".. node, named as the
+    // engineer's export names them: the bell (the housing), base, shaft and flux ring of an "HWI-…" motor, its bell
+    // fillers, the propeller's blades, hub, washer and nut, and the arm's own pieces
+    const partOf = o => { const name = o.name || '', m = /^(Motor[ _]Base|Motor[ _]Coil|Motor[ _]Cap|Motor[ _]Shaft|Prop[ _]Hub|Propeller|Arm)[ _](FR|FL|BR|BL)(?:[ _](2))?$/.exec(name); if (m) return { part: m[1].replace('_', ' '), pos: m[2] + (m[3] ? ' 2' : '') };
+      let pos = null; for (let p = o.parent; p; p = p.parent) { const a = /^Arm[ _](FR|FL|BR|BL)$/.exec(p.name || ''); if (a) { pos = a[1]; break; } } if (!pos) return null;
+      const part = /^Bell[ _]Filler/i.test(name) ? 'Motor Cap' : /BELL/i.test(name) ? 'Motor Base' : /SHAFT/i.test(name) ? 'Motor Shaft' : /FLUX/i.test(name) ? 'Motor Ring' : /BASE/i.test(name) ? 'Motor Coil' : /^Prop[ _]Blade/i.test(name) ? 'Propeller' : /^Prop[ _]/i.test(name) ? 'Prop Hub' : 'Arm';
+      return { part, pos }; };
     const skip = name => /^mesh_\d+_instance/.test(name || '');
     gltf.scene.updateMatrixWorld(true);
     const motorBox = new THREE.Box3(), armBox = new THREE.Box3(), all = new THREE.Box3(); const coils = {};   // per motor: its housing (the Motor Base): box, centre, radius and the straight wall's y-range, for the ribs and rims
-    const hubs = {}, propInfo = {};
+    const hubs = {}, propInfo = {}, props = [], modelProps = [], propPhase = {};
     const meshes = []; gltf.scene.traverse(o => { if (o.isMesh && !skip(o.name)) meshes.push(o); });
     // the skids (the long tubes), so the struts can be carried down to them
     const skids = []; for (const o of meshes) if (/^Skid[ _](Left|Right)$/.test(o.name)) { const b = o.geometry.clone().applyMatrix4(o.matrixWorld); b.computeBoundingBox(); skids.push(b.boundingBox); }
@@ -307,7 +314,7 @@
     let tris = 0;
     for (const o of meshes) {
       const g = o.geometry.clone(); g.applyMatrix4(o.matrixWorld); extendLeg(o, g); if (!g.attributes.normal) g.computeVertexNormals(); g.computeBoundingBox(); all.union(g.boundingBox);
-      const info = partOf(o.name), isFocus = !!(info && info.pos === key), inFocus = !!(info && (info.pos === keyBase || info.pos === keyBase + ' 2'));   // the ring named, for the framing; the whole stack at that position (both rings of the coaxial pair), for what stays and what is copied
+      const info = partOf(o), isFocus = !!(info && info.pos === key), inFocus = !!(info && (info.pos === keyBase || info.pos === keyBase + ' 2'));   // the ring named, for the framing; the whole stack at that position (both rings of the coaxial pair), for what stays and what is copied
       const mine = !!(info && /^Motor/.test(info.part));
       if (mine) { if (isFocus) motorBox.union(g.boundingBox);
         if (info.part === 'Motor Base') {   // the housing: its widest radius, and the y-range of the straight wall at that radius (inside any fillets at the ends)
@@ -315,16 +322,20 @@
           let y0 = Infinity, y1 = -Infinity; for (let i = 0; i < p.count; i++) if (Math.hypot(p.getX(i) - c.x, p.getZ(i) - c.z) >= r * 0.995) { y0 = Math.min(y0, p.getY(i)); y1 = Math.max(y1, p.getY(i)); }
           if (!(y1 > y0)) { y0 = b.min.y; y1 = b.max.y; } coils[info.pos] = { box: b.clone(), c, r, y0, y1 }; } }
       if (isFocus && info.part === 'Arm') armBox.union(g.boundingBox);
-      if (info && info.part === 'Prop Hub') hubs[info.pos] = g.boundingBox.clone();
+      if (info && info.part === 'Prop Hub') hubs[info.pos] = hubs[info.pos] ? hubs[info.pos].union(g.boundingBox) : g.boundingBox.clone();
       if (info && info.part === 'Propeller') { propInfo[info.pos] = g.boundingBox.clone(); if (CONFIG.props !== 'model') continue; }
       tris += g.index ? g.index.count / 3 : g.attributes.position.count / 3;
-      solid(g, mine ? (inFocus ? 'focus' : 'motor') : 'rest');
+      const m = solid(g, mine ? (inFocus ? 'focus' : 'motor') : 'rest');
+      if (info && CONFIG.props === 'model' && (info.part === 'Propeller' || info.part === 'Prop Hub')) modelProps.push({ m, pos: info.pos });   // the model's own propeller: it turns, about its hub
     }
+    // the model's own propellers turn about their hubs: each part's geometry is moved so the hub's axis is its origin, and the mesh put back there
+    for (const { m, pos } of modelProps) { const hb = hubs[pos] || propInfo[pos]; if (!hb) continue; const c = new THREE.Vector3(); hb.getCenter(c);
+      m.geometry.translate(-c.x, 0, -c.z); m.geometry.computeBoundingBox(); m.geometry.computeBoundingSphere(); m.position.set(c.x, 0, c.z);
+      let pr = props.find(p => p.mesh === m); if (!pr) { const ring = / 2$/.test(pos) ? 1 : 0, quad = /^(FR|BL)/.test(pos) ? 1 : -1; props.push({ mesh: m, dir: quad * (ring ? -1 : 1), phase: propPhase[pos] == null ? (propPhase[pos] = Math.random() * Math.PI * 2) : propPhase[pos] }); } }
     { let top = 255; const setId = (m, id) => { m.userData.idMat.uniforms.uId.value = id / 255; };   // the ids from the top, now the parts are known
       for (const m of solids) if (m.userData.kind === 'focus') setId(m, top--); ids.focusMin = top + 1;
       for (const m of solids) if (m.userData.kind === 'motor') setId(m, top--); ids.motorMin = top + 1; ids.copyTop = top;
       edgeMat.uniforms.uFocusMin.value = (ids.focusMin - 0.5) / 255; edgeMat.uniforms.uMotorMin.value = (ids.motorMin - 0.5) / 255; edgeMat.uniforms.uCopyTop.value = ids.copyTop; }
-    const props = [];
     if (CONFIG.props !== 'model') for (const pos of Object.keys(propInfo)) {
       const pb = propInfo[pos], hb = hubs[pos] || pb, c = new THREE.Vector3(); hb.getCenter(c);
       const R = Math.max(pb.max.x - pb.min.x, pb.max.z - pb.min.z) / 2, r0 = Math.max(hb.max.x - hb.min.x, hb.max.z - hb.min.z) / 2 * 0.9, y = (pb.min.y + pb.max.y) / 2;
@@ -650,5 +661,5 @@
       .then(([, buf]) => new Promise((res, rej) => new global.THREE.GLTFLoader().parse(buf, url.replace(/[^/]*$/, ''), res, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '3.7.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '3.8.0' };
 })(typeof window !== 'undefined' ? window : this);

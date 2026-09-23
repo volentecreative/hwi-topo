@@ -357,7 +357,8 @@ and step back flush when the pointer leaves. Pass `mark: { polys, width, height 
 
 ## drone-hero.js: the drone, on a scroll-driven camera move onto a motor
 
-The heavy-lift drone model (`heavy_lift_drone_model.glb`, in this repo) for the hero. It is drawn as
+The heavy-lift drone model (`heavy_lift_drone_model.glb`, in this repo: HWI's own, with the HWI-2207 motor
+shell, ~2.6 MB, 95k triangles) for the hero. It is drawn as
 lines found on screen: a first pass writes each pixel's normal, depth and part, a second draws a
 one-pixel line wherever those jump — silhouettes and creases alike, the same weight everywhere, with
 nothing behind showing through; each mesh carries its own id, so where two parts meet on screen the
@@ -426,7 +427,12 @@ damped, so a fast flick cannot expose an intermediate frame. Without a track it 
 ```
 
 Options: `focus` (the motor the path ends on: FL by default; FR, BR, BL, or `'FL 2'` for the lower ring of
-the coaxial pairs);
+a coaxial pair. The script reads two namings from the model: parts named for their position — "Motor Base
+FL", "Arm FR", "Propeller BL 2" — and parts grouped under an "Arm FL".. node and named as the engineer's
+export names them: the bell (the housing the ribs go round), base, shaft and flux ring of an "HWI-…"
+motor, its bell fillers, and the propeller's blades, hub, washer and nut. In HWI's model the positions
+are named from the pilot's seat, so the motor on the drone's front-right as the camera sees it from the
+front is `'FR'`);
 `track`, `runEnd` (a selector inside the track for the element whose top reaching the canvas ends the
 path, e.g. the section the drone arrives in, so the canvas can stay pinned across more than one section)
 and `damping` (0.12); `fov` (30°). Headings are about the drone: 0 = from the front, positive
@@ -445,7 +451,7 @@ the track's end, for fading the canvas out before the next section: e.g. `opacit
 the front), `startElevation` (0°, level), `margin` (1.25 round the whole drone, which
 is fitted to the frame from that heading). Also
 `propScroll` (turns per 1000px scrolled, 0.35) and `propSeconds` (idle turn, 0 = still); `props`
-(`'blades'` or `'model'`), `blades`, `bladeChord`, `bladeTwist`; `grid` (cell in motor heights, 1)
+(`'blades'`: two blades generated in place of the model's, or `'model'`: the model's own propellers, turning about their hubs), `blades`, `bladeChord`, `bladeTwist`; `grid` (cell in motor heights, 1)
 and `gridFade` (0.3; the grid also fades out toward its own edge, all round), `gridExtent` (24 motor
 heights from the drone's centre) and `gridWidth` (1px); `ribs`
 (24 per motor housing, along its straight wall, with a rim line round each end of the wall), `ribWidth` (1px)
