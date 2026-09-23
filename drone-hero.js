@@ -88,6 +88,7 @@
     face: 'var(--drone-face, var(--topo-block, #222322))',
     background: 'var(--drone-bg, transparent)',
     pixelRatioCap: 2,
+    msaa: false,               // multisampling on the canvas itself; the lines have their own antialiasing (the edge pass's supersampling, the quads' coverage) so it changes nothing visible and costs fill on every frame
     // on touch devices (a coarse pointer) the work per frame is cut: the canvas at a lower pixel ratio, and at most this many frames a second
     pixelRatioCapCoarse: 1.5,
     fpsCoarse: 30
@@ -242,7 +243,7 @@
     const RAW = {}; for (const k of COLOR_KEYS) { RAW[k] = CONFIG[k]; CONFIG[k] = resolveColor(host, CONFIG[k]); }
     if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
     host.style.background = CONFIG.background; host.style.overflow = 'hidden';
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });   // the faces, ribs and grid get multisampling; the lines are supersampled in their own pass
+    const renderer = new THREE.WebGLRenderer({ antialias: CONFIG.msaa !== false, alpha: true });   // the faces, ribs and grid get multisampling; the lines are supersampled in their own pass
     renderer.setClearColor(0x000000, 0); renderer.autoClear = false;
     Object.assign(renderer.domElement.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', display: 'block' });
     host.appendChild(renderer.domElement);
@@ -576,7 +577,7 @@
       if (visible && posTarget !== pos) { pos = reduced ? posTarget : pos + (posTarget - pos) * Math.min(1, (+CONFIG.damping || 0.12) * dt * 60); if (Math.abs(posTarget - pos) < 1e-5) pos = posTarget; progress = Math.min(1, pos); insp = Math.max(0, pos - 1); }
       if (visible && pos !== shownPos) place();
       if (!reduced && visible) {
-        if (CONFIG.propSeconds > 0) { idle += dt * Math.PI * 2 / CONFIG.propSeconds; dirty = true; }
+        if (CONFIG.propSeconds > 0) { idle += dt * Math.PI * 2 / CONFIG.propSeconds; if (droneOn) dirty = true; }   // the propellers go with the rest of the drone: once it has gone there is nothing turning to draw
         if (Math.abs(spinTarget - spin) > 1e-4) { spin += (spinTarget - spin) * Math.min(1, dt * 6); if (Math.abs(spinTarget - spin) < 1e-4) spin = spinTarget; dirty = true; }
         for (const p of props) p.mesh.rotation.y = p.dir * (spin + idle) + p.phase;
         if (flag && flag.shown) { flagT += dt; flag.update(flagT); dirty = true; }
@@ -606,9 +607,12 @@
     const host = typeof target === 'string' ? document.querySelector(target) : target;
     if (!host) return Promise.reject(new Error('DroneHero: target not found'));
     const CONFIG = Object.assign({}, DEFAULTS, config || {});
-    return loadThree().then(() => loadScript(CONFIG.loader, () => !!(global.THREE && global.THREE.GLTFLoader)))
-      .then(() => new Promise((res, rej) => new global.THREE.GLTFLoader().load(CONFIG.model || (HERE + 'heavy_lift_drone_model.glb'), res, undefined, rej)))
+    // the model is fetched at once, alongside three.js and the loader, and parsed when they are in
+    const url = CONFIG.model || (HERE + 'heavy_lift_drone_model.glb');
+    const bytes = fetch(url).then(r => { if (!r.ok) throw new Error('model failed to load: ' + url); return r.arrayBuffer(); });
+    return Promise.all([loadThree().then(() => loadScript(CONFIG.loader, () => !!(global.THREE && global.THREE.GLTFLoader))), bytes])
+      .then(([, buf]) => new Promise((res, rej) => new global.THREE.GLTFLoader().parse(buf, url.replace(/[^/]*$/, ''), res, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '3.0.1' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '3.1.0' };
 })(typeof window !== 'undefined' ? window : this);

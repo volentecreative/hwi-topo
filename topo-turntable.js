@@ -34,6 +34,7 @@
     "intervalRevealMode": "progressive",
     "microInterval": 10,
     "contourLevels": 2,
+    "lazy": 1.5,                 // viewports away from the screen at which the map starts loading (three.js, the terrain, the lines); null = at once
     "approachTail": 0,           // viewports of the approachScroll track's scroll held after the descent has landed (make the track that much taller), so the end is a rest, not the edge
     "fpsCoarse": 30,             // on touch devices (a coarse pointer): at most this many frames a second, so the page's own scrolling keeps its frames
     "coarseInterval": 100,
@@ -609,9 +610,13 @@
     if(!host) return Promise.reject(new Error('TopoTurntable: target not found'));
     const CONFIG = Object.assign({}, DEFAULTS, config||{});
     injectCSS();
-    return Promise.all([loadThree(), loadData(CONFIG.data||{})]).then(([_,DATA])=>{ const inst = build(host, CONFIG, DATA); if(!CONFIG.labelClass) host.querySelectorAll('.topo-label').forEach(el=>{ if(!(CONFIG.countyLabelClass&&el.classList.contains('topo-label--county'))) el.style.setProperty('font', CONFIG.labelFont); }); return inst; });
+    // lazy: nothing (three.js, the terrain grids, the lines) is fetched until the host comes within `lazy` viewports of
+    // the screen, so a map far down the page costs the page's load nothing
+    const near = () => new Promise(res => { const L = CONFIG.lazy == null ? 1.5 : +CONFIG.lazy; if(!(L >= 0) || !('IntersectionObserver' in global)) return res();
+      const io = new IntersectionObserver(en => { if(en[0].isIntersecting){ io.disconnect(); res(); } }, { rootMargin: Math.round(L * 100) + '% 0px' }); io.observe(host); });
+    return near().then(() => Promise.all([loadThree(), loadData(CONFIG.data||{})])).then(([_,DATA])=>{ const inst = build(host, CONFIG, DATA); if(!CONFIG.labelClass) host.querySelectorAll('.topo-label').forEach(el=>{ if(!(CONFIG.countyLabelClass&&el.classList.contains('topo-label--county'))) el.style.setProperty('font', CONFIG.labelFont); }); return inst; });
   }
   function autoMount(){ document.querySelectorAll('[data-topo]').forEach(el=>{ if(el.dataset.topoMounted) return; el.dataset.topoMounted='1'; let cfg={}; try{ cfg=JSON.parse(el.dataset.config||'{}'); }catch(e){} mount(el,cfg); }); }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', autoMount); else autoMount();
-  global.TopoTurntable = { mount, defaults: DEFAULTS, version: '2.2.0' };
+  global.TopoTurntable = { mount, defaults: DEFAULTS, version: '2.3.0' };
 })(window);

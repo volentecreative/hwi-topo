@@ -92,6 +92,7 @@ to the value shown here.
     approachScroll:  '',        // selector of the tall track the stage is stuck inside; progress follows its scroll
     approachLens:    38,        // field of view at the top; it narrows to `lens` on the way down
     approachDamping: 0.12,      // how quickly the view follows the scroll (1 = instantly)
+    lazy:            1.5,       // viewports away from the screen at which the map starts loading (three.js, the terrain, the lines); null = at once
     approachTail:    0,         // viewports of that track's scroll held after the descent has landed (make the track that much taller), so the end is a rest, not the edge
     stage: null,                // let the script move the map's own box with the descent — see below; e.g.
                                 // { move: '.topo-descent_map-wrapper', reveal: '.topo-descent_text-wrapper', start: 0.45, end: 0.7 }
@@ -431,7 +432,7 @@ progress over which the flag fades away, so the close-up never shows its edge cu
 `supersample` (2: the edge pass runs at twice the canvas resolution and averages, so the lines are
 antialiased; the faces, ribs and grid are multisampled), `pixelBudget` (8 million pixels: the most the
 edge pass holds at once; a bigger frame is rendered in tiles, so the quality never drops) and
-`pixelRatioCap` (2), and on touch devices `pixelRatioCapCoarse` (1.5) and `fpsCoarse` (30: at most this many
+`pixelRatioCap` (2), `msaa` (false: the lines carry their own antialiasing, so multisampling the canvas only costs fill), and on touch devices `pixelRatioCapCoarse` (1.5) and `fpsCoarse` (30: at most this many
 frames a second, so the page's own scrolling keeps its frames). The canvas is only resized when its size really changes, the hotspots and CSS custom properties are only written when
 they change, and the custom properties are not written at all up to `breakpoint`: on phones, style changes round a sticky
 element can make it re-sync mid-scroll; and
