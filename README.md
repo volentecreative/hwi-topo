@@ -372,18 +372,22 @@ With `inspect` set, an inspection follows the arrival: the `runEnd` section's ow
 five viewports tall, with its content sticky inside) carries the camera through three poses. The whole path
 is one curve — from the page's top, through the arrival and the poses — so the approach runs straight on into
 the inspection without a stop, and the camera only eases to rest after the last pose. By default the first
-pose holds the arrival view while everything but the focused motor fades away (`isolate`, a window of the
-section's scroll; the floor grid stays), the second is the motor's profile from the drone's left, dead level,
-and the third lifts up and further round to the left to reveal a row of copies of the motor behind it
-(`copies`: how many, their spacing in housing diameters, and the window over which they fade in; they sit
-exactly behind the motor along the profile's line of sight, and each further one is dimmer, so the row fades
-into the distance). Each pose has a window of that scroll (`windows`; the first window's start is the end
+pose is a touch further round and up from the arrival, so the camera drifts on while everything but the
+focused motor fades away (`isolate`, a window of the section's scroll; the floor grid stays), the second is
+the motor's profile from the drone's left, dead level, passed through rather than held, and the third lifts up
+and further round to the left to reveal a row of copies of the motor behind it (`copies`: how many, their
+spacing in housing diameters, and the window over which they fade in; they sit exactly behind the motor along
+the profile's line of sight and fade in just as the camera passes it, so they emerge from behind it as it
+swings on up, and each further one is dimmer, so the row fades into the distance). Every channel of the
+default poses runs one way (the heading keeps turning, the height keeps rising, the distance keeps closing),
+which is what keeps the curve moving: two neighbouring keys with the same value — a pose equal to the
+arrival, or a `hold` — bring the camera to rest there. Each pose has a window of that scroll (`windows`; the first window's start is the end
 of the intro) in which its feature row is active (`[data-inspect="1"]`.. rows get `is-active`, each row gets
 `--inspect-fill`, 0-1 through its window, for a progress bar, and `--inspect-active`, 1 while it is the
 active one — it inherits, so a child's styles can follow it where the class can't reach — and a `drone:reach` event as the scroll reaches
 its window, `drone:unreach` on the way back up past it; with `click` a click on a row scrolls the page to its
 window); the camera passes through the pose at the window's centre (or the pose's `at`, or rests on it over the pose's
-`hold` window, as the profile does while the copies appear), and a pose can
+`hold` window, if a pose should be held), and a pose can
 shift the look-at point toward the drone's centre (`centre`) or elsewhere in the frame (`point`, and
 `pointNarrow` up to `breakpoint`; without one, a pose on a narrow screen uses the top-level narrow point,
 since its `point` is for the wide layout); a pose value of null is the arrival's. With `callouts`, each window also shows a callout on the housing (a straight

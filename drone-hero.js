@@ -105,12 +105,15 @@
     // elsewhere in the frame (`point`, as the top-level one; `pointNarrow` on screens up to `breakpoint`, else the top-level
     // narrow point — a pose's `point` is for the wide layout); the anchor is the hotspot's place on the housing
     poses: [
-      { azimuth: null, elevation: null, zoom: null, anchor: { angle: -42, height: 0.62, radius: 1 }, label: '01' },   // the arrival view held (null = as the arrival), the rest of the drone stripped away
-      { azimuth: -90, elevation: 0, zoom: 0.36, hold: [0.55, 0.7], anchor: { angle: -70, height: 0.5, radius: 1 }, label: '02' },   // the profile, from the drone's left, dead level — held while the copies appear behind it
+      { azimuth: -40, elevation: -8, zoom: 0.32, anchor: { angle: -42, height: 0.62, radius: 1 }, label: '01' },   // a touch further round and up from the arrival, so the camera drifts on while the rest of the drone strips away
+      { azimuth: -90, elevation: 0, zoom: 0.3, anchor: { angle: -70, height: 0.5, radius: 1 }, label: '02' },   // the profile, from the drone's left, dead level — passed through, not held
       { azimuth: -135, elevation: 35, zoom: 0.2, anchor: { angle: -135, height: 1.14, radius: 0.55 }, label: '03' }  // from above and further round to the left: the row of copies behind it
     ],
+    // every channel (heading, height, distance) runs one way through the three poses, so the curve never comes to rest between
+    // them: the camera is always moving, slowest near each pose, and only settles after the last. (Equal values in two
+    // neighbouring keys — a pose the same as the arrival, or a `hold` — make it stop there.)
     isolate: [0.05, 0.35],     // of the section's scroll: the window over which everything but the focused motor fades away, quickly at first and then slowly (the floor grid stays); null = never
-    copies: { count: 6, gap: 1.3, fade: [0.58, 0.66] },   // the focused motor repeated behind itself: how many (each further one dimmer, the last nearly gone), their spacing in housing diameters, and the window (of the section's scroll) over which they fade in — hidden behind the motor at the profile; null = none
+    copies: { count: 6, gap: 1.3, fade: [0.62, 0.72] },   // the focused motor repeated behind itself: how many (each further one dimmer, the last nearly gone), their spacing in housing diameters, and the window (of the section's scroll) over which they fade in — they sit behind the motor along the profile's line of sight, so fading in just as the camera passes it, they emerge from behind it as it swings on up; null = none
     callouts: false,           // true: a callout on the housing in each window (a leader to a small square, the pose's `label` above)
     windows: [[0.4, 0.6], [0.6, 0.8], [0.8, 1]],   // of the section's scroll: each pose's window, where its hotspot shows and its row is active; before the first is the intro
     settle: 0.04,              // the hotspot fades in over this much scroll after its window begins, and out over as much before it ends
@@ -616,5 +619,5 @@
       .then(([, buf]) => new Promise((res, rej) => new global.THREE.GLTFLoader().parse(buf, url.replace(/[^/]*$/, ''), res, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '3.2.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '3.3.0' };
 })(typeof window !== 'undefined' ? window : this);
