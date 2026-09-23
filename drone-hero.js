@@ -45,6 +45,7 @@
     turn: -28,                 // (only with azimuth 'auto') degrees the side-on heading swings round
     elevation: -14,            // camera height above the horizon at the end, degrees; negative looks up from below
     zoom: 0.36,                // the focused motor's height (base to cap) as a fraction of the frame's height
+    zoomNarrow: null,          // … on screens up to `breakpoint` (null = the same)
     point: { x: 0.5, y: 0.5 },         // where the ribbed casing sits in the frame at the end (fractions of width and height)
     pointNarrow: { x: 0.5, y: 0.45 },  // … on screens up to `breakpoint` wide
     startPoint: { x: 0.5, y: 0.5 },    // where the whole drone's centre sits at the start; y above 1 puts it below the frame, so only its top peeks in
@@ -105,13 +106,14 @@
     // elsewhere in the frame (`point`, as the top-level one; `pointNarrow` on screens up to `breakpoint`, else the top-level
     // narrow point — a pose's `point` is for the wide layout); the anchor is the hotspot's place on the housing
     poses: [
-      { azimuth: -40, elevation: -8, zoom: 0.32, anchor: { angle: -42, height: 0.62, radius: 1 }, label: '01' },   // a touch further round and up from the arrival, so the camera drifts on while the rest of the drone strips away
-      { azimuth: -90, elevation: 0, zoom: 0.3, anchor: { angle: -70, height: 0.5, radius: 1 }, label: '02' },   // the profile, from the drone's left, dead level — passed through, not held
-      { azimuth: -135, elevation: 35, zoom: 0.2, anchor: { angle: -135, height: 1.14, radius: 0.55 }, label: '03' }  // from above and further round to the left: the row of copies behind it
+      { azimuth: -40, elevation: -8, zoom: 0.55, zoomNarrow: 0.26, anchor: { angle: -42, height: 0.62, radius: 1 }, label: '01' },   // a touch further round and up from the arrival, and closing in, so the motor fills the frame as the rest of the drone strips away
+      { azimuth: -90, elevation: 0, zoom: 0.5, zoomNarrow: 0.24, anchor: { angle: -70, height: 0.5, radius: 1 }, label: '02' },   // the profile, from the drone's left, dead level — passed through, not held
+      { azimuth: -135, elevation: 35, zoom: 0.2, zoomNarrow: 0.16, anchor: { angle: -135, height: 1.14, radius: 0.55 }, label: '03' }  // from above and further round to the left: the row of copies behind it
     ],
-    // every channel (heading, height, distance) runs one way through the three poses, so the curve never comes to rest between
-    // them: the camera is always moving, slowest near each pose, and only settles after the last. (Equal values in two
-    // neighbouring keys — a pose the same as the arrival, or a `hold` — make it stop there.)
+    // the heading and the height run one way through the three poses, so the curve never comes to rest between them: the
+    // camera is always moving, slowest near each pose, and only settles after the last (the distance closes in to 01 and
+    // opens out again for the row). Equal values in two neighbouring keys — a pose the same as the arrival, or a `hold` —
+    // make it stop there. `zoomNarrow` on a pose is its zoom on screens up to `breakpoint`
     isolate: [0.05, 0.35],     // of the section's scroll: the window over which everything but the focused motor fades away, quickly at first and then slowly (the floor grid stays); null = never
     crossfade: true,           // how it fades: true = the frame is drawn twice, with the rest of the drone and without, and the two are blended, so its lines, its faces' cover of the grid and ribs behind them, and the motor's outline where they cross it all dissolve at one rate (costs a second render only while it fades); false = only its lines fade, and its geometry stays in the way until it is gone
     copies: { count: 6, gap: 1.3, fade: [0.62, 0.72] },   // the focused motor repeated behind itself: how many (each further one dimmer, the last nearly gone), their spacing in housing diameters, and the window (of the section's scroll) over which they fade in — they sit behind the motor along the profile's line of sight, so fading in just as the camera passes it, they emerge from behind it as it swings on up; null = none
@@ -174,14 +176,14 @@
   const ID_VERT = 'varying vec3 vN; void main(){ vN = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }';
   const ID_FRAG = 'uniform float uId; varying vec3 vN; void main(){ gl_FragColor = vec4(normalize(vN) * 0.5 + 0.5, uId); }';
   const EDGE_FRAG = `
-    uniform sampler2D tN, tD; uniform vec2 uRes; uniform vec4 uTile; uniform float uNear, uFar, uWidth, uDepthT, uNormT, uFlagA, uDroneA, uCopyA, uCopyP, uCopyN; uniform vec3 uC1, uC2;
+    uniform sampler2D tN, tD; uniform vec2 uRes; uniform vec4 uTile; uniform float uNear, uFar, uWidth, uDepthT, uNormT, uFlagA, uDroneA, uCopyA, uCopyP, uCopyN, uFocusMin, uMotorMin, uCopyTop; uniform vec3 uC1, uC2;
     float lin(float z){ float zn = 2.0 * z - 1.0; return 2.0 * uNear * uFar / (uFar + uNear - zn * (uFar - uNear)); }
     // the line at one point of the (supersampled) pass: 0 = none, 1 = a line, and which colour it takes
     float edgeAt(vec2 uv, out vec3 col){
       vec2 px = uWidth / uRes; vec4 c = texture2D(tN, uv); float d = lin(texture2D(tD, uv).x); vec3 n = c.xyz * 2.0 - 1.0;
-      // ids: the drone's other parts count up from 1, the flag is 110, the motor copies run 191 down, the other motors 240 down, the focused motor 255 down
+      // ids: the drone's other parts count up from 1, the flag is 110; from 255 down: the focused motor's parts, the other motors', the motor copies (a band of uCopyP per copy, from uCopyTop down)
       col = c.a > 0.6 ? uC1 : uC2;
-      float fa = (c.a > 0.35 && c.a < 0.55) ? uFlagA : c.a > 0.94 ? 1.0 : (c.a > 0.6 && c.a <= 0.75) ? uCopyA * max(0.0, 1.0 - (floor((191.0 - floor(c.a * 255.0 + 0.5)) / uCopyP) + 1.0) / (uCopyN + 1.0)) : uDroneA;   // the flag, the focused motor, the copies (each further one dimmer), the rest of the drone: each fades on its own
+      float fa = c.a >= uFocusMin ? 1.0 : c.a >= uMotorMin ? uDroneA : c.a > 0.6 ? uCopyA * max(0.0, 1.0 - (floor((uCopyTop - floor(c.a * 255.0 + 0.5)) / uCopyP) + 1.0) / (uCopyN + 1.0)) : (c.a > 0.35 && c.a < 0.55) ? uFlagA : uDroneA;   // the flag, the focused motor, the copies (each further one dimmer), the rest of the drone: each fades on its own
       if (c.a < 0.002) return 0.0;                               // background (ids start at 1/255): lines are drawn from the object's side
       float e = 0.0;
       for (int i = 0; i < 2; i++) {                              // each axis: the two neighbours either side
@@ -264,24 +266,25 @@
       const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(A, 3)); g.setAttribute('pointA', new THREE.BufferAttribute(A, 3)); g.setAttribute('pointB', new THREE.BufferAttribute(B, 3)); g.setAttribute('corner', new THREE.BufferAttribute(C, 2)); g.setIndex(idx);
       const m = new THREE.Mesh(g, mat); m.frustumCulled = false; m.userData.isLines = true; return m; };
     const inspect = CONFIG.inspect ? Object.assign({}, INSPECT, CONFIG.inspect) : null;   // the inspection's options (used from the build on: the motor copies are geometry)
-    // part ids, by kind: the rest of the drone counts up from 1, the focused motor's parts down from 255, the other motors' down from
-    // 240, the motor copies down from 191 (the edge pass colours ids above 153 primary, and fades each kind on its own)
-    const solids = []; const ids = { rest: 0, focus: 255, motor: 240, copy: 191 };
-    const solid = (g, kind, fixedId) => { const m = new THREE.Mesh(g, faceMat); kind = kind === true ? 'motor' : kind || 'rest'; const id = fixedId || (kind === 'rest' ? ++ids.rest : ids[kind]--);
-      m.userData.kind = fixedId ? 'flag' : kind; m.userData.idMat = new THREE.ShaderMaterial({ vertexShader: ID_VERT, fragmentShader: ID_FRAG, uniforms: { uId: { value: id / 255 } } }); solids.push(m); scene.add(m); return m; };
+    // part ids, by kind: the rest of the drone counts up from 1, the flag is 110; from the top down, once the model is read: the
+    // focused motor's parts from 255, then the other motors', then the motor copies, down to 154 (the edge pass colours ids
+    // above 153 primary, and fades each kind on its own; the bands' bounds go to it as uniforms)
+    const solids = []; const ids = { rest: 0, focusMin: 255, motorMin: 255, copyTop: 254 };
+    const solid = (g, kind, fixedId) => { const m = new THREE.Mesh(g, faceMat); kind = kind === true ? 'motor' : kind || (fixedId ? 'flag' : 'rest'); const id = fixedId || (kind === 'rest' ? ++ids.rest : 0);
+      m.userData.kind = kind; m.userData.idMat = new THREE.ShaderMaterial({ vertexShader: ID_VERT, fragmentShader: ID_FRAG, uniforms: { uId: { value: id / 255 } } }); solids.push(m); scene.add(m); return m; };
     // the edge pass's target and quad
     const isGL2 = renderer.capabilities.isWebGL2;
     const depthTex = new THREE.DepthTexture(1, 1); depthTex.type = isGL2 ? THREE.UnsignedIntType : THREE.UnsignedShortType;
     const rt = new THREE.WebGLRenderTarget(1, 1, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthTexture: depthTex, depthBuffer: true, stencilBuffer: false });
     const edgeMat = new THREE.ShaderMaterial({ transparent: true, depthTest: false, depthWrite: false, blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendEquation: THREE.AddEquation, vertexShader: 'void main(){ gl_Position = vec4(position.xy, 0.0, 1.0); }', fragmentShader: EDGE_FRAG,
-      uniforms: { tN: { value: rt.texture }, tD: { value: depthTex }, uRes: { value: new THREE.Vector2(1, 1) }, uTile: { value: new THREE.Vector4(0, 0, 1, 1) }, uNear: { value: camera.near }, uFar: { value: camera.far }, uWidth: { value: 1 }, uDepthT: { value: +CONFIG.depthEdge || 0.012 }, uNormT: { value: +CONFIG.normalEdge || 0.25 }, uFlagA: { value: 1 }, uDroneA: { value: 1 }, uCopyA: { value: 0 }, uCopyP: { value: 1 }, uCopyN: { value: 1 }, uC1: { value: new THREE.Color(CONFIG.primary) }, uC2: { value: new THREE.Color(CONFIG.secondary) } } });
+      uniforms: { tN: { value: rt.texture }, tD: { value: depthTex }, uRes: { value: new THREE.Vector2(1, 1) }, uTile: { value: new THREE.Vector4(0, 0, 1, 1) }, uNear: { value: camera.near }, uFar: { value: camera.far }, uWidth: { value: 1 }, uDepthT: { value: +CONFIG.depthEdge || 0.012 }, uNormT: { value: +CONFIG.normalEdge || 0.25 }, uFlagA: { value: 1 }, uDroneA: { value: 1 }, uCopyA: { value: 0 }, uCopyP: { value: 1 }, uCopyN: { value: 1 }, uFocusMin: { value: 1 }, uMotorMin: { value: 1 }, uCopyTop: { value: 254 }, uC1: { value: new THREE.Color(CONFIG.primary) }, uC2: { value: new THREE.Color(CONFIG.secondary) } } });
     // the quad the lines are drawn with covers one tile of the canvas at a time
     const quadGeo = new THREE.BufferGeometry(); quadGeo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(12), 3)); quadGeo.setIndex([0, 1, 2, 0, 2, 3]);
     const quadScene = new THREE.Scene(), quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1); const quad = new THREE.Mesh(quadGeo, edgeMat); quad.frustumCulled = false; quadScene.add(quad);
     const setQuad = (x0, y0, x1, y1) => { const p = quadGeo.attributes.position; p.setXYZ(0, x0, y0, 0); p.setXYZ(1, x1, y0, 0); p.setXYZ(2, x1, y1, 0); p.setXYZ(3, x0, y1, 0); p.needsUpdate = true; };   // NDC corners
 
     // ---- the model, baked into world space; parts are told apart by name (the loader writes spaces as underscores)
-    const key = String(CONFIG.focus || 'FR').trim();
+    const key = String(CONFIG.focus || 'FR').trim(), keyBase = key.replace(/ 2$/, '');
     const partOf = name => { const m = /^(Motor[ _]Base|Motor[ _]Coil|Motor[ _]Cap|Motor[ _]Shaft|Prop[ _]Hub|Propeller|Arm)[ _](FR|FL|BR|BL)(?:[ _](2))?$/.exec(name || ''); return m ? { part: m[1].replace('_', ' '), pos: m[2] + (m[3] ? ' 2' : '') } : null; };
     const skip = name => /^mesh_\d+_instance/.test(name || '');
     gltf.scene.updateMatrixWorld(true);
@@ -303,7 +306,7 @@
     let tris = 0;
     for (const o of meshes) {
       const g = o.geometry.clone(); g.applyMatrix4(o.matrixWorld); extendLeg(o, g); if (!g.attributes.normal) g.computeVertexNormals(); g.computeBoundingBox(); all.union(g.boundingBox);
-      const info = partOf(o.name), isFocus = !!(info && info.pos === key);
+      const info = partOf(o.name), isFocus = !!(info && info.pos === key), inFocus = !!(info && (info.pos === keyBase || info.pos === keyBase + ' 2'));   // the ring named, for the framing; the whole stack at that position (both rings of the coaxial pair), for what stays and what is copied
       const mine = !!(info && /^Motor/.test(info.part));
       if (mine) { if (isFocus) motorBox.union(g.boundingBox);
         if (info.part === 'Motor Base') {   // the housing: its widest radius, and the y-range of the straight wall at that radius (inside any fillets at the ends)
@@ -314,8 +317,12 @@
       if (info && info.part === 'Prop Hub') hubs[info.pos] = g.boundingBox.clone();
       if (info && info.part === 'Propeller') { propInfo[info.pos] = g.boundingBox.clone(); if (CONFIG.props !== 'model') continue; }
       tris += g.index ? g.index.count / 3 : g.attributes.position.count / 3;
-      solid(g, mine ? (isFocus ? 'focus' : 'motor') : 'rest');
+      solid(g, mine ? (inFocus ? 'focus' : 'motor') : 'rest');
     }
+    { let top = 255; const setId = (m, id) => { m.userData.idMat.uniforms.uId.value = id / 255; };   // the ids from the top, now the parts are known
+      for (const m of solids) if (m.userData.kind === 'focus') setId(m, top--); ids.focusMin = top + 1;
+      for (const m of solids) if (m.userData.kind === 'motor') setId(m, top--); ids.motorMin = top + 1; ids.copyTop = top;
+      edgeMat.uniforms.uFocusMin.value = (ids.focusMin - 0.5) / 255; edgeMat.uniforms.uMotorMin.value = (ids.motorMin - 0.5) / 255; edgeMat.uniforms.uCopyTop.value = ids.copyTop; }
     const props = [];
     if (CONFIG.props !== 'model') for (const pos of Object.keys(propInfo)) {
       const pb = propInfo[pos], hb = hubs[pos] || pb, c = new THREE.Vector3(); hb.getCenter(c);
@@ -341,12 +348,12 @@
     // so from the profile they hide behind it and the last pose, lifting off that line, reveals the row
     const copies = { meshes: [], ribs: [], mats: [], n: 0, shown: false };
     if (inspect && inspect.copies && +inspect.copies.count > 0 && coils[key]) {
-      const C = inspect.copies, parts = solids.filter(m => m.userData.kind === 'focus'), P = Math.max(1, parts.length), n = Math.max(0, Math.min(Math.floor(32 / P), C.count | 0));   // the ids 160-191 hold the copies: one band of P per copy
+      const C = inspect.copies, parts = solids.filter(m => m.userData.kind === 'focus'), P = Math.max(1, parts.length), n = Math.max(0, Math.min(Math.floor((ids.copyTop - 153) / P), C.count | 0));   // the ids from copyTop down to 154 hold the copies: one band of P per copy
       const Pz = inspect.poses[1] || {}, az = (C.azimuth == null ? (Pz.azimuth == null ? -90 : +Pz.azimuth) : +C.azimuth) * D2R;
       const step = new THREE.Vector3(-Math.sin(az), 0, -Math.cos(az)).multiplyScalar((+C.gap || 1.3) * 2 * coils[key].r);   // behind: away from where the camera sits at that pose
       copies.n = n; edgeMat.uniforms.uCopyP.value = P; edgeMat.uniforms.uCopyN.value = Math.max(1, n);
       for (let k = 1; k <= n; k++) { const off = step.clone().multiplyScalar(k);
-        parts.forEach((m, j) => { const g = m.geometry.clone().translate(off.x, off.y, off.z); const c = solid(g, 'copy', 191 - (k - 1) * P - j); c.visible = false; copies.meshes.push(c); tris += g.index ? g.index.count / 3 : g.attributes.position.count / 3; });
+        parts.forEach((m, j) => { const g = m.geometry.clone().translate(off.x, off.y, off.z); const c = solid(g, 'copy', ids.copyTop - (k - 1) * P - j); c.visible = false; copies.meshes.push(c); tris += g.index ? g.index.count / 3 : g.attributes.position.count / 3; });
         if (focusRibs.length) { const a = new Array(focusRibs.length); for (let i = 0; i < focusRibs.length; i += 3) { a[i] = focusRibs[i] + off.x; a[i + 1] = focusRibs[i + 1] + off.y; a[i + 2] = focusRibs[i + 2] + off.z; }
           const mat = lineMaterial(CONFIG.primary, false, 0); lineMats.push(mat); ribMats.add(mat); const mesh = lineMesh(a, mat); mesh.visible = false; scene.add(mesh); copies.ribs.push(mesh); copies.mats.push(mat); } }
     }
@@ -480,12 +487,12 @@
     // in the frame it sits. One curve, so the approach runs straight on into the inspection without a stop
     function camAt(pos, withPoses) {
       const fov = (+CONFIG.fov || 30) * D2R, a = w / h;
-      const d0 = fitDistance(azimuth0(), +CONFIG.startElevation || 0, fov, a) * (+CONFIG.margin || 1.25), d1 = zoomDist(+CONFIG.zoom || 0.36);
+      const nz = isNarrow(), z0 = nz && CONFIG.zoomNarrow != null ? +CONFIG.zoomNarrow : (+CONFIG.zoom || 0.36), d0 = fitDistance(azimuth0(), +CONFIG.startElevation || 0, fov, a) * (+CONFIG.margin || 1.25), d1 = zoomDist(z0);
       const pe = endPoint(), ps = (isNarrow() && CONFIG.startPointNarrow) || CONFIG.startPoint || { x: 0.5, y: 0.5 };
       const ts = [0, 1], az = [azimuth0(), azimuth()], el = [+CONFIG.startElevation || 0, +CONFIG.elevation || 0], ld = [Math.log(d0), Math.log(d1)], ce = [1, 0], px = [ps.x, pe.x], py = [ps.y, pe.y];
       if (withPoses) inspect.poses.forEach((p, k) => { const wn = inspect.windows[k] || [1, 1], at = Array.isArray(p.hold) && p.hold.length === 2 ? [1 + +p.hold[0], 1 + +p.hold[1]] : [1 + (p.at == null ? (wn[0] + wn[1]) / 2 : +p.at)];   // a hold: the camera rests on the pose over that window
         for (const t of at) { if (t <= ts[ts.length - 1]) continue;
-          ts.push(t); az.push(p.azimuth == null ? azimuth() : +p.azimuth); el.push(p.elevation == null ? (+CONFIG.elevation || 0) : +p.elevation); ld.push(Math.log(zoomDist(p.zoom == null ? (+CONFIG.zoom || 0.36) : +p.zoom))); ce.push(+p.centre || 0); const pp = isNarrow() ? p.pointNarrow : p.point; px.push(pp ? +pp.x : pe.x); py.push(pp ? +pp.y : pe.y); } });
+          ts.push(t); az.push(p.azimuth == null ? azimuth() : +p.azimuth); el.push(p.elevation == null ? (+CONFIG.elevation || 0) : +p.elevation); const pz = nz && p.zoomNarrow != null ? p.zoomNarrow : p.zoom; ld.push(Math.log(zoomDist(pz == null ? z0 : +pz))); ce.push(+p.centre || 0); const pp = nz ? p.pointNarrow : p.point; px.push(pp ? +pp.x : pe.x); py.push(pp ? +pp.y : pe.y); } });
       return { az: spline(ts, az, pos), el: spline(ts, el, pos), dist: Math.exp(spline(ts, ld, pos)), centre: spline(ts, ce, pos), px: spline(ts, px, pos), py: spline(ts, py, pos) };
     }
     // at this much of the inspection: the hotspots' opacities and which feature is active
@@ -640,5 +647,5 @@
       .then(([, buf]) => new Promise((res, rej) => new global.THREE.GLTFLoader().parse(buf, url.replace(/[^/]*$/, ''), res, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '3.4.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '3.5.0' };
 })(typeof window !== 'undefined' ? window : this);
