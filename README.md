@@ -373,7 +373,11 @@ five viewports tall, with its content sticky inside) carries the camera through 
 is one curve — from the page's top, through the arrival and the poses — so the approach runs straight on into
 the inspection without a stop, and the camera only eases to rest after the last pose. By default the first
 pose is a touch further round and up from the arrival, so the camera drifts on while everything but the
-focused motor fades away (`isolate`, a window of the section's scroll; the floor grid stays), the second is
+focused motor fades away (`isolate`, a window of the section's scroll; the floor grid stays — with `crossfade`,
+the default, the frame is drawn twice while it fades, with the rest of the drone and without, and the two are
+blended, so its lines, its faces' cover of the grid and ribs behind them, and the motor's outline where its arms
+cross it all dissolve at the one rate and nothing pops when it leaves; `crossfade: false` fades only its lines
+and leaves its geometry in the way until it is gone), the second is
 the motor's profile from the drone's left, dead level, passed through rather than held, and the third lifts up
 and further round to the left to reveal a row of copies of the motor behind it (`copies`: how many, their
 spacing in housing diameters, and the window over which they fade in; they sit exactly behind the motor along

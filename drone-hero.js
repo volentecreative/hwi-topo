@@ -113,6 +113,7 @@
     // them: the camera is always moving, slowest near each pose, and only settles after the last. (Equal values in two
     // neighbouring keys — a pose the same as the arrival, or a `hold` — make it stop there.)
     isolate: [0.05, 0.35],     // of the section's scroll: the window over which everything but the focused motor fades away, quickly at first and then slowly (the floor grid stays); null = never
+    crossfade: true,           // how it fades: true = the frame is drawn twice, with the rest of the drone and without, and the two are blended, so its lines, its faces' cover of the grid and ribs behind them, and the motor's outline where they cross it all dissolve at one rate (costs a second render only while it fades); false = only its lines fade, and its geometry stays in the way until it is gone
     copies: { count: 6, gap: 1.3, fade: [0.62, 0.72] },   // the focused motor repeated behind itself: how many (each further one dimmer, the last nearly gone), their spacing in housing diameters, and the window (of the section's scroll) over which they fade in — they sit behind the motor along the profile's line of sight, so fading in just as the camera passes it, they emerge from behind it as it swings on up; null = none
     callouts: false,           // true: a callout on the housing in each window (a leader to a small square, the pose's `label` above)
     windows: [[0.4, 0.6], [0.6, 0.8], [0.8, 1]],   // of the section's scroll: each pose's window, where its hotspot shows and its row is active; before the first is the intro
@@ -510,7 +511,7 @@
       // the rest of the drone fades away over `isolate`, and leaves the scene once gone; the copies fade in over their window
       if (inspect) { const win = (w, v) => Array.isArray(w) && w.length === 2 && w[1] > w[0] ? Math.min(1, Math.max(0, (v - w[0]) / (w[1] - w[0]))) : 0;
         const ti = useInsp ? win(inspect.isolate, q) : 0, droneA = (1 - ti) * (1 - ti), copyA = useInsp && inspect.copies ? win(inspect.copies.fade, q) : 0;   // the drone goes quickly at first and lingers faintly, so its leaving never snaps
-        if (droneA !== shownDroneA) { shownDroneA = droneA; edgeMat.uniforms.uDroneA.value = droneA; droneRibMat.uniforms.uOpacity.value = (+CONFIG.ribOpacity) * droneA;
+        if (droneA !== shownDroneA) { shownDroneA = droneA; const la = inspect.crossfade === false ? droneA : 1; edgeMat.uniforms.uDroneA.value = la; droneRibMat.uniforms.uOpacity.value = (+CONFIG.ribOpacity) * la;
           const on = droneA > 0.001; if (on !== droneOn) { droneOn = on; for (const m of solids) if (m.userData.kind === 'rest' || m.userData.kind === 'motor') m.visible = on; if (droneRibs) droneRibs.visible = on; if (grid) grid.visible = true; } }
         if (copyA !== shownCopyA) { shownCopyA = copyA; edgeMat.uniforms.uCopyA.value = copyA; copies.mats.forEach((m, i) => { m.uniforms.uOpacity.value = (+CONFIG.ribOpacity) * copyA * Math.max(0, 1 - (i + 1) / (copies.n + 1)); });
           const on = copyA > 0.001; if (on !== copies.shown) { copies.shown = on; for (const m of copies.meshes) m.visible = on; for (const m of copies.ribs) m.visible = on; } } }
@@ -550,11 +551,12 @@
       for (const m of lineMats) { if (!ribMats.has(m) && m !== gridMat) m.uniforms.uWidth.value = Math.max(0.3, (+CONFIG.gridWidth || 1) * PR); m.uniforms.uRes.value.set(W, H); m.uniforms.uHalf.value = m.uniforms.uWidth.value / 2 + 1; }
       if (!trackEl) progress = progressTarget = pos = posTarget = 1; place();
     }
-    function render() {
-      renderer.setRenderTarget(null); renderer.clear(); renderer.render(scene, camera);   // the faces (occluders), ribs and grid, multisampled
+    // one frame, into a render target (null = the canvas)
+    function drawFrame(target) {
+      renderer.setRenderTarget(target); renderer.clear(); renderer.render(scene, camera);   // the faces (occluders), ribs and grid, multisampled
       const v = camera.view, fw = v.fullWidth, fh = v.fullHeight, ox = v.offsetX, oy = v.offsetY, vw = v.width, vh = v.height;   // the framing
       for (const m of solids) { m.userData.faceMat = m.material; m.material = m.userData.idMat; }
-      const lines = []; scene.traverse(o => { if (o.userData.isLines) { lines.push(o); o.visible = false; } });
+      const lines = []; scene.traverse(o => { if (o.userData.isLines && o.visible) { lines.push(o); o.visible = false; } });   // (only the shown ones, so a hidden set stays hidden)
       const { nx, ny, w: tw, h: th, g, PR, W, H } = T;
       for (let ty = 0; ty < ny; ty++) for (let tx = 0; tx < nx; tx++) {
         const x0 = tx * tw, y0 = ty * th;   // the tile, in canvas pixels from the top left
@@ -564,10 +566,29 @@
         // pass two: the lines, onto the tile's part of the canvas
         edgeMat.uniforms.uTile.value.set(x0 - g, H - (y0 + th) - g, tw + 2 * g, th + 2 * g);
         setQuad(x0 / W * 2 - 1, 1 - (y0 + th) / H * 2, (x0 + tw) / W * 2 - 1, 1 - y0 / H * 2);
-        renderer.setRenderTarget(null); renderer.render(quadScene, quadCam);
+        renderer.setRenderTarget(target); renderer.render(quadScene, quadCam);
       }
       camera.setViewOffset(fw, fh, ox, oy, vw, vh); camera.updateProjectionMatrix();
       for (const m of solids) m.material = m.userData.faceMat; for (const l of lines) l.visible = true;
+    }
+    // while the rest of the drone fades (crossfade), the frame is drawn twice — with it and without it — into two
+    // targets, and the canvas gets their blend: everything it touches (its lines, the grid and the motor's ribs its
+    // faces cover, the motor's outline where its arms cross it) goes at the one rate, and nothing pops when it leaves
+    const xf = { a: null, b: null, w: 0, h: 0 }, mixMat = new THREE.ShaderMaterial({ transparent: true, depthTest: false, depthWrite: false, blending: THREE.NoBlending,
+      vertexShader: 'varying vec2 vUv; void main(){ vUv = position.xy * 0.5 + 0.5; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+      fragmentShader: 'uniform sampler2D tA, tB; uniform float uMix; varying vec2 vUv; void main(){ gl_FragColor = mix(texture2D(tB, vUv), texture2D(tA, vUv), uMix); }',
+      uniforms: { tA: { value: null }, tB: { value: null }, uMix: { value: 1 } } });
+    function render() {
+      const a = shownDroneA, fading = inspect && inspect.crossfade !== false && droneOn && a < 0.999;
+      if (!fading) { if (xf.a) { xf.a.dispose(); xf.b.dispose(); xf.a = xf.b = null; xf.w = xf.h = 0; } drawFrame(null); return; }
+      const { W, H } = T; if (!xf.a) { const o = { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true, stencilBuffer: false }; xf.a = new THREE.WebGLRenderTarget(W, H, o); xf.b = new THREE.WebGLRenderTarget(W, H, o); }
+      if (xf.w !== W || xf.h !== H) { xf.w = W; xf.h = H; xf.a.setSize(W, H); xf.b.setSize(W, H); }
+      drawFrame(xf.a);   // with the rest of the drone
+      const hid = []; for (const m of solids) if ((m.userData.kind === 'rest' || m.userData.kind === 'motor') && m.visible) { m.visible = false; hid.push(m); } if (droneRibs && droneRibs.visible) { droneRibs.visible = false; hid.push(droneRibs); }
+      drawFrame(xf.b);   // without it
+      for (const m of hid) m.visible = true;
+      mixMat.uniforms.tA.value = xf.a.texture; mixMat.uniforms.tB.value = xf.b.texture; mixMat.uniforms.uMix.value = a;
+      quad.material = mixMat; setQuad(-1, -1, 1, 1); renderer.setRenderTarget(null); renderer.clear(); renderer.render(quadScene, quadCam); quad.material = edgeMat;
     }
     // ---- the loop: the camera follows the scroll through the track, damped; the props turn with the scroll
     let dirty = true, alive = true, visible = true, lastT = performance.now(), spin = 0, spinTarget = 0, idle = 0, flagT = 0;
@@ -619,5 +640,5 @@
       .then(([, buf]) => new Promise((res, rej) => new global.THREE.GLTFLoader().parse(buf, url.replace(/[^/]*$/, ''), res, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '3.3.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '3.4.0' };
 })(typeof window !== 'undefined' ? window : this);
