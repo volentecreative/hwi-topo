@@ -76,7 +76,7 @@
     margin: 1.25,              // breathing room round the whole drone at the start (1 = its silhouette touches the frame)
     propScroll: 0.35,          // propeller turns per 1000px of scrolling; 0 = the props do not follow the scroll
     propSeconds: 0,            // seconds per idle turn of every propeller; 0 = still unless scrolled
-    propPhase: null,           // the propellers' starting angle, in degrees (the same for all, so they read as a set); null = each at random
+    propPhase: null,           // the heading the propellers' blades start at, in degrees (0 = a blade straight back from the camera's opening view, 90 = to its left; the same for all, so they read as a set); null = each at random
     props: 'blades',           // 'blades': generated blades in place of the model's; 'model': the model's own
     blades: 2, bladeChord: 0.2, bladeTwist: 22,   // per propeller: blade count, widest chord as a share of the radius, root twist in degrees
     grid: 1, gridFade: 0.3,    // the floor grid's cell, in motor heights (0 = none), and how far from the motor it starts fading (share of the frame's half-size; it is gone by the edges — and by the grid's own edge, in every direction)
@@ -337,13 +337,18 @@
       if (info && info.part === 'Propeller') { propInfo[info.pos] = g.boundingBox.clone(); if (CONFIG.props !== 'model') continue; }
       tris += g.index ? g.index.count / 3 : g.attributes.position.count / 3;
       const m = solid(g, mine ? (inFocus ? 'focus' : 'motor') : 'rest');
-      if (info && CONFIG.props === 'model' && (info.part === 'Propeller' || info.part === 'Prop Hub')) modelProps.push({ m, pos: info.pos });   // the model's own propeller: it turns, about its hub
+      if (info && CONFIG.props === 'model' && (info.part === 'Propeller' || info.part === 'Prop Hub')) modelProps.push({ m, pos: info.pos, part: info.part });   // the model's own propeller: it turns, about its hub
     }
     { const c0 = all.getCenter(new THREE.Vector3()); pivot.position.copy(c0); rig.position.copy(c0).negate(); }   // the rig turns about the drone's centre
     // the model's own propellers turn about their hubs: each part's geometry is moved so the hub's axis is its origin, and the mesh put back there
     for (const { m, pos } of modelProps) { const hb = hubs[pos] || propInfo[pos]; if (!hb) continue; const c = new THREE.Vector3(); hb.getCenter(c);
       m.geometry.translate(-c.x, 0, -c.z); m.geometry.computeBoundingBox(); m.geometry.computeBoundingSphere(); m.position.set(c.x, 0, c.z);
-      let pr = props.find(p => p.mesh === m); if (!pr) { const ring = / 2$/.test(pos) ? 1 : 0, quad = /^(FR|BL)/.test(pos) ? 1 : -1; props.push({ mesh: m, dir: quad * (ring ? -1 : 1), phase: propPhase[pos] == null ? (propPhase[pos] = CONFIG.propPhase == null ? Math.random() * Math.PI * 2 : +CONFIG.propPhase * D2R) : propPhase[pos] }); } }
+      let pr = props.find(p => p.mesh === m); if (!pr) { const ring = / 2$/.test(pos) ? 1 : 0, quad = /^(FR|BL)/.test(pos) ? 1 : -1; props.push({ mesh: m, pos, dir: quad * (ring ? -1 : 1), phase: propPhase[pos] == null ? (propPhase[pos] = CONFIG.propPhase == null ? Math.random() * Math.PI * 2 : +CONFIG.propPhase * D2R) : propPhase[pos] }); } }
+    // a shared starting angle means the blades themselves line up: each arm is a turned copy in the model, so each propeller's blade
+    // points its own way to begin with — its tip's heading (the vertex furthest from the hub) is measured, and the turn that brings
+    // it to `propPhase` is that propeller's phase
+    if (CONFIG.propPhase != null) { const tipAz = {}; for (const e of modelProps) if (e.part === 'Propeller') { const q = e.m.geometry.attributes.position; let best = -1, bx = 0, bz = 1; for (let i = 0; i < q.count; i++) { const x = q.getX(i), z = q.getZ(i), r = x * x + z * z; if (r > best) { best = r; bx = x; bz = z; } } tipAz[e.pos] = Math.atan2(bx, bz); }
+      for (const pr of props) if (pr.pos != null && tipAz[pr.pos] != null) pr.phase = +CONFIG.propPhase * D2R - tipAz[pr.pos]; }
     { let top = 255; const setId = (m, id) => { m.userData.idMat.uniforms.uId.value = id / 255; };   // the ids from the top, now the parts are known
       for (const m of solids) if (m.userData.kind === 'focus') setId(m, top--); ids.focusMin = top + 1;
       for (const m of solids) if (m.userData.kind === 'motor') setId(m, top--); ids.motorMin = top + 1; ids.copyTop = top;
@@ -674,5 +679,5 @@
       .then(([, buf]) => new Promise((res, rej) => new global.THREE.GLTFLoader().parse(buf, url.replace(/[^/]*$/, ''), res, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '3.11.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '3.12.0' };
 })(typeof window !== 'undefined' ? window : this);
