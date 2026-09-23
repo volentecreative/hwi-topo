@@ -100,7 +100,7 @@
     // the housing's height as a share of the frame, and where the hotspot sits on the housing: `angle` is a heading
     // round it, `height` runs 0-1 from the bottom of the wall to the top (beyond either for the cap or the mount),
     // `radius` is a multiple of the housing's radius. The label is the hotspot's caption
-    // the camera passes through each pose at `at` (of the section's scroll; the centre of its window when not given) on
+    // the camera passes through each pose at `at` (of the section's scroll; the end of its window when not given, so each stage's move fills its window) on
     // one smooth curve from the arrival view: it never stops between poses, only eases to rest after the last. A pose
     // may also move the look-at point from the motor's housing toward the drone's centre (`centre`, 0-1) and put it
     // elsewhere in the frame (`point`, as the top-level one; `pointNarrow` on screens up to `breakpoint`, else the top-level
@@ -114,11 +114,11 @@
     // camera is always moving, slowest near each pose, and only settles after the last (the distance closes in to 01 and
     // opens out again for the row). Equal values in two neighbouring keys — a pose the same as the arrival, or a `hold` —
     // make it stop there. `zoomNarrow` on a pose is its zoom on screens up to `breakpoint`
-    isolate: [0.05, 0.35],     // of the section's scroll: the window over which everything but the focused motor fades away, quickly at first and then slowly (the floor grid stays); null = never
+    isolate: null,             // of the section's scroll: the window over which everything but the focused motor fades away, quickly at first and then slowly (the floor grid stays); null = the first pose's window, so it is that stage's move; false = never
     crossfade: true,           // how it fades: true = the frame is drawn twice, with the rest of the drone and without, and the two are blended, so its lines, its faces' cover of the grid and ribs behind them, and the motor's outline where they cross it all dissolve at one rate (costs a second render only while it fades); false = only its lines fade, and its geometry stays in the way until it is gone
-    copies: { count: 6, gap: 1.3, fade: [0.62, 0.72] },   // the focused motor repeated behind itself: how many (each further one dimmer, the last nearly gone), their spacing in housing diameters, and the window (of the section's scroll) over which they fade in — they sit behind the motor along the profile's line of sight, so fading in just as the camera passes it, they emerge from behind it as it swings on up; null = none
+    copies: { count: 6, gap: 1.3, fade: null },   // the focused motor repeated behind itself: how many (each further one dimmer, the last nearly gone), their spacing in housing diameters, and the window (of the section's scroll) over which they fade in (null = the opening 40% of the last pose's window) — they sit behind the motor along the profile's line of sight, so fading in just as the camera leaves it, they emerge from behind it as it swings on up; copies: null = none
     callouts: false,           // true: a callout on the housing in each window (a leader to a small square, the pose's `label` above)
-    windows: [[0.4, 0.6], [0.6, 0.8], [0.8, 1]],   // of the section's scroll: each pose's window, where its hotspot shows and its row is active; before the first is the intro
+    windows: [[0.4, 0.6], [0.6, 0.8], [0.8, 1]],   // of the section's scroll: each pose's window, where its row is active and its bar fills; the camera moves from the previous pose to this one over it, arriving as it ends (before the first is the intro)
     settle: 0.04,              // the hotspot fades in over this much scroll after its window begins, and out over as much before it ends
     rows: '[data-inspect]',    // the feature rows, numbered 1.. in that attribute; the active one gets `activeClass`
     activeClass: 'is-active',
@@ -490,7 +490,7 @@
       const nz = isNarrow(), z0 = nz && CONFIG.zoomNarrow != null ? +CONFIG.zoomNarrow : (+CONFIG.zoom || 0.36), d0 = fitDistance(azimuth0(), +CONFIG.startElevation || 0, fov, a) * (+CONFIG.margin || 1.25), d1 = zoomDist(z0);
       const pe = endPoint(), ps = (isNarrow() && CONFIG.startPointNarrow) || CONFIG.startPoint || { x: 0.5, y: 0.5 };
       const ts = [0, 1], az = [azimuth0(), azimuth()], el = [+CONFIG.startElevation || 0, +CONFIG.elevation || 0], ld = [Math.log(d0), Math.log(d1)], ce = [1, 0], px = [ps.x, pe.x], py = [ps.y, pe.y];
-      if (withPoses) inspect.poses.forEach((p, k) => { const wn = inspect.windows[k] || [1, 1], at = Array.isArray(p.hold) && p.hold.length === 2 ? [1 + +p.hold[0], 1 + +p.hold[1]] : [1 + (p.at == null ? (wn[0] + wn[1]) / 2 : +p.at)];   // a hold: the camera rests on the pose over that window
+      if (withPoses) inspect.poses.forEach((p, k) => { const wn = inspect.windows[k] || [1, 1], at = Array.isArray(p.hold) && p.hold.length === 2 ? [1 + +p.hold[0], 1 + +p.hold[1]] : [1 + (p.at == null ? wn[1] : +p.at)];   // a hold: the camera rests on the pose over that window
         for (const t of at) { if (t <= ts[ts.length - 1]) continue;
           ts.push(t); az.push(p.azimuth == null ? azimuth() : +p.azimuth); el.push(p.elevation == null ? (+CONFIG.elevation || 0) : +p.elevation); const pz = nz && p.zoomNarrow != null ? p.zoomNarrow : p.zoom; ld.push(Math.log(zoomDist(pz == null ? z0 : +pz))); ce.push(+p.centre || 0); const pp = nz ? p.pointNarrow : p.point; px.push(pp ? +pp.x : pe.x); py.push(pp ? +pp.y : pe.y); } });
       return { az: spline(ts, az, pos), el: spline(ts, el, pos), dist: Math.exp(spline(ts, ld, pos)), centre: spline(ts, ce, pos), px: spline(ts, px, pos), py: spline(ts, py, pos) };
@@ -517,7 +517,8 @@
       const s = useInsp && q > 0 ? inspectAt(q) : null;
       // the rest of the drone fades away over `isolate`, and leaves the scene once gone; the copies fade in over their window
       if (inspect) { const win = (w, v) => Array.isArray(w) && w.length === 2 && w[1] > w[0] ? Math.min(1, Math.max(0, (v - w[0]) / (w[1] - w[0]))) : 0;
-        const ti = useInsp ? win(inspect.isolate, q) : 0, droneA = (1 - ti) * (1 - ti), copyA = useInsp && inspect.copies ? win(inspect.copies.fade, q) : 0;   // the drone goes quickly at first and lingers faintly, so its leaving never snaps
+        const W0 = inspect.windows[0] || [0, 1], WL = inspect.windows[inspect.windows.length - 1] || [0, 1], isoW = inspect.isolate == null ? W0 : inspect.isolate, fadeW = inspect.copies && inspect.copies.fade == null ? [WL[0], WL[0] + 0.4 * (WL[1] - WL[0])] : inspect.copies && inspect.copies.fade;
+        const ti = useInsp ? win(isoW, q) : 0, droneA = (1 - ti) * (1 - ti), copyA = useInsp && inspect.copies ? win(fadeW, q) : 0;   // the drone goes quickly at first and lingers faintly, so its leaving never snaps
         if (droneA !== shownDroneA) { shownDroneA = droneA; const la = inspect.crossfade === false ? droneA : 1; edgeMat.uniforms.uDroneA.value = la; droneRibMat.uniforms.uOpacity.value = (+CONFIG.ribOpacity) * la;
           const on = droneA > 0.001; if (on !== droneOn) { droneOn = on; for (const m of solids) if (m.userData.kind === 'rest' || m.userData.kind === 'motor') m.visible = on; if (droneRibs) droneRibs.visible = on; if (grid) grid.visible = true; } }
         if (copyA !== shownCopyA) { shownCopyA = copyA; edgeMat.uniforms.uCopyA.value = copyA; copies.mats.forEach((m, i) => { m.uniforms.uOpacity.value = (+CONFIG.ribOpacity) * copyA * Math.max(0, 1 - (i + 1) / (copies.n + 1)); });
@@ -647,5 +648,5 @@
       .then(([, buf]) => new Promise((res, rej) => new global.THREE.GLTFLoader().parse(buf, url.replace(/[^/]*$/, ''), res, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '3.5.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '3.6.0' };
 })(typeof window !== 'undefined' ? window : this);
