@@ -397,7 +397,9 @@ active one — it inherits, so a child's styles can follow it where the class ca
 its window, `drone:unreach` on the way back up past it; with `click` a click on a row scrolls the page to its
 window); the camera moves from the previous pose to this one over its window, arriving as the window ends
 (or at the pose's `at`; or it rests on the pose over the pose's `hold` window, if one should be held), so each
-stage's move begins and ends with its row's bar, and a pose can
+stage's move begins and ends with its row's bar; over the last window (`easeOut`, of the section's scroll)
+the camera's progress is eased out on top of the curve's own flat end, so the last stage comes to rest
+softly, and a pose can
 shift the look-at point toward the drone's centre (`centre`) or elsewhere in the frame (`point`, and
 `pointNarrow` up to `breakpoint`; without one, a pose on a narrow screen uses the top-level narrow point,
 since its `point` is for the wide layout); a pose value of null is the arrival's. With `callouts`, each window also shows a callout on the housing (a straight

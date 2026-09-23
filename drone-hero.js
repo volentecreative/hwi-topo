@@ -108,7 +108,7 @@
     poses: [
       { azimuth: -40, elevation: -8, zoom: 0.55, zoomNarrow: 0.26, anchor: { angle: -42, height: 0.62, radius: 1 }, label: '01' },   // a touch further round and up from the arrival, and closing in, so the motor fills the frame as the rest of the drone strips away
       { azimuth: -90, elevation: 0, zoom: 0.5, zoomNarrow: 0.24, anchor: { angle: -70, height: 0.5, radius: 1 }, label: '02' },   // the profile, from the drone's left, dead level — passed through, not held
-      { azimuth: -135, elevation: 35, zoom: 0.2, zoomNarrow: 0.16, anchor: { angle: -135, height: 1.14, radius: 0.55 }, label: '03' }  // from above and further round to the left: the row of copies behind it
+      { azimuth: -135, elevation: 35, zoom: 0.32, zoomNarrow: 0.22, anchor: { angle: -135, height: 1.14, radius: 0.55 }, label: '03' }  // from above and further round to the left, a little further out: the row of copies behind it, running off the frame
     ],
     // the heading and the height run one way through the three poses, so the curve never comes to rest between them: the
     // camera is always moving, slowest near each pose, and only settles after the last (the distance closes in to 01 and
@@ -120,6 +120,7 @@
     callouts: false,           // true: a callout on the housing in each window (a leader to a small square, the pose's `label` above)
     windows: [[0.4, 0.6], [0.6, 0.8], [0.8, 1]],   // of the section's scroll: each pose's window, where its row is active and its bar fills; the camera moves from the previous pose to this one over it, arriving as it ends (before the first is the intro)
     settle: 0.04,              // the hotspot fades in over this much scroll after its window begins, and out over as much before it ends
+    easeOut: null,             // of the section's scroll: over this much before its end the camera's progress is eased out (its speed falling smoothly to nothing at the end, on top of the curve's own flat end), so the last stage comes to rest softly; null = the last pose's window; 0 = none
     rows: '[data-inspect]',    // the feature rows, numbered 1.. in that attribute; the active one gets `activeClass`
     activeClass: 'is-active',
     click: false,              // true: clicking a row scrolls the page (smoothly) to that row's window, so the camera settles on its pose
@@ -507,7 +508,8 @@
     // progress e) running on into the inspection where there is one
     function place() {
       const useInsp = !!inspect, p = Math.min(1, pos), e = ease(p), q = useInsp ? Math.max(0, pos - 1) : 0;
-      const c = camAt(useInsp ? pos : p, useInsp);
+      let cpos = useInsp ? pos : p; if (useInsp) { const WL = inspect.windows[inspect.windows.length - 1] || [0, 1], L = inspect.easeOut == null ? WL[1] - WL[0] : +inspect.easeOut; if (L > 0 && pos > 2 - L) { const u = Math.min(1, (pos - (2 - L)) / L); cpos = 2 - L + L * (u + u * u - u * u * u); } }   // the last stretch eased out: the camera's speed falls smoothly to nothing at the end (easeOut)
+      const c = camAt(cpos, useInsp);
       camTarget.copy(target).lerp(droneC, c.centre);
       aim(c.az * D2R, c.el * D2R, c.dist, c.px, c.py);
       fadeGrid(); motorColor(e);
@@ -648,5 +650,5 @@
       .then(([, buf]) => new Promise((res, rej) => new global.THREE.GLTFLoader().parse(buf, url.replace(/[^/]*$/, ''), res, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '3.6.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '3.7.0' };
 })(typeof window !== 'undefined' ? window : this);
