@@ -431,7 +431,9 @@ a coaxial pair. The script reads two namings from the model: parts named for the
 FL", "Arm FR", "Propeller BL 2" — and parts grouped under an "Arm FL".. node and named as the engineer's
 export names them: the bell (the housing the ribs go round), base, shaft and flux ring of an "HWI-…"
 motor, its bell fillers (a filler that sits below the base is the arm's mount, and goes with the arm), and
-the propeller's blades, hub, washer and nut. In HWI's model the positions are named from the pilot's seat,
+the propeller's blades, hub, washer and nut. A part whose transform mirrors it — a negative scale, as two
+of HWI's arms have, being mirrored copies — is turned right side out as it is read, so it draws like the
+others rather than inside-out. In HWI's model the positions are named from the pilot's seat,
 so the motor on the drone's front-right as the camera sees it from the front is `'FR'`); `tilt` (degrees the
 drone is pitched nose-down about its centre at the top of the page, 0, as if under way; it levels out over
 the approach and arrives flat — the drone rides in a group pivoted on its centre, so the propellers keep

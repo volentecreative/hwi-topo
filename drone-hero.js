@@ -300,6 +300,7 @@
       const part = /^Bell[ _]Filler/i.test(name) ? 'Motor Cap' : /BELL/i.test(name) ? 'Motor Base' : /SHAFT/i.test(name) ? 'Motor Shaft' : /FLUX/i.test(name) ? 'Motor Ring' : /BASE/i.test(name) ? 'Motor Coil' : /^Prop[ _]Blade/i.test(name) ? 'Propeller' : /^Prop[ _]/i.test(name) ? 'Prop Hub' : 'Arm';
       return { part, pos }; };
     const skip = name => /^mesh_\d+_instance/.test(name || '');
+    const flipWinding = g => { if (g.index) { const a = g.index.array; for (let i = 0; i + 2 < a.length; i += 3) { const t = a[i + 1]; a[i + 1] = a[i + 2]; a[i + 2] = t; } g.index.needsUpdate = true; } else { const p = g.attributes.position, n = g.attributes.normal; for (let i = 0; i + 2 < p.count; i += 3) for (const at of [p, n]) { if (!at) continue; const x = at.getX(i + 1), y = at.getY(i + 1), z = at.getZ(i + 1); at.setXYZ(i + 1, at.getX(i + 2), at.getY(i + 2), at.getZ(i + 2)); at.setXYZ(i + 2, x, y, z); at.needsUpdate = true; } } };
     gltf.scene.updateMatrixWorld(true);
     const motorBox = new THREE.Box3(), armBox = new THREE.Box3(), all = new THREE.Box3(); const coils = {};   // per motor: its housing (the Motor Base): box, centre, radius and the straight wall's y-range, for the ribs and rims
     const hubs = {}, propInfo = {}, props = [], modelProps = [], propPhase = {};
@@ -322,7 +323,7 @@
     };
     let tris = 0;
     for (const o of meshes) {
-      const g = o.geometry.clone(); g.applyMatrix4(o.matrixWorld); extendLeg(o, g); if (!g.attributes.normal) g.computeVertexNormals(); g.computeBoundingBox();
+      const g = o.geometry.clone(); g.applyMatrix4(o.matrixWorld); if (o.matrixWorld.determinant() < 0) flipWinding(g); extendLeg(o, g);   // a mirrored copy (a negative scale in its transform) bakes inside-out: its triangles are turned back round if (!g.attributes.normal) g.computeVertexNormals(); g.computeBoundingBox();
       const info = partOf(o); if (info && info.part === 'Motor Cap' && baseBottom[info.pos] != null && (g.boundingBox.min.y + g.boundingBox.max.y) / 2 < baseBottom[info.pos]) info.part = 'Arm';   // the mount under the base
       const isProp = !!(info && (info.part === 'Propeller' || info.part === 'Prop Hub')); if (!isProp || CONFIG.props === 'model') all.union(g.boundingBox);
       const isFocus = !!(info && info.pos === key), inFocus = !!(info && (info.pos === keyBase || info.pos === keyBase + ' 2'));   // the ring named, for the framing; the whole stack at that position (both rings of the coaxial pair), for what stays and what is copied
@@ -679,5 +680,5 @@
       .then(([, buf]) => new Promise((res, rej) => new global.THREE.GLTFLoader().parse(buf, url.replace(/[^/]*$/, ''), res, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '3.12.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '3.13.0' };
 })(typeof window !== 'undefined' ? window : this);
