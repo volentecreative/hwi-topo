@@ -102,7 +102,8 @@
     // the camera passes through each pose at `at` (of the section's scroll; the centre of its window when not given) on
     // one smooth curve from the arrival view: it never stops between poses, only eases to rest after the last. A pose
     // may also move the look-at point from the motor's housing toward the drone's centre (`centre`, 0-1) and put it
-    // elsewhere in the frame (`point`, as the top-level one); the anchor is the hotspot's place on the housing
+    // elsewhere in the frame (`point`, as the top-level one; `pointNarrow` on screens up to `breakpoint`, else the top-level
+    // narrow point — a pose's `point` is for the wide layout); the anchor is the hotspot's place on the housing
     poses: [
       { azimuth: null, elevation: null, zoom: null, anchor: { angle: -42, height: 0.62, radius: 1 }, label: '01' },   // the arrival view held (null = as the arrival), the rest of the drone stripped away
       { azimuth: -90, elevation: 0, zoom: 0.36, hold: [0.55, 0.7], anchor: { angle: -70, height: 0.5, radius: 1 }, label: '02' },   // the profile, from the drone's left, dead level — held while the copies appear behind it
@@ -119,6 +120,7 @@
     reachEvent: 'drone:reach',     // dispatched (bubbling) on a row as the scroll reaches its window, and…
     unreachEvent: 'drone:unreach', // … on the way back up past its start; '' = none. The page's own scripts can start things on them
     fillVar: '--inspect-fill',   // a CSS custom property written on each row: 0 before its window, 0-1 through it, 1 after — for a progress bar in the row; '' = none
+    activeVar: '--inspect-active',   // a CSS custom property written on each row: 1 while its window is the current one, else 0 — the row's own styles (and, as it inherits, its children's) can follow it where a class can't reach; '' = none
     hotspotClass: '',          // CSS class(es) for the hotspot labels (e.g. the site's eyebrow style)
     leader: [0, -72],          // the callout, as the topo map's: a straight leader from the anchor out by (dx, dy) px to a small square, the label above it
     dot: 6,                    // the square's side (px)
@@ -457,7 +459,7 @@
       if (inspect.click) for (const r of out) { const go = () => scrollToRow(r.n); r.el.addEventListener('click', go); r.el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } }); }
       return out; };
     // scroll the page to the middle of a row's window (where the camera passes through its pose)
-    function scrollToRow(n) { const w = inspect.windows[n - 1]; if (!w || !endEl || isNarrow()) return; const q = (w[0] + w[1]) / 2, er = endEl.getBoundingClientRect(), hr = host.getBoundingClientRect();
+    function scrollToRow(n) { const w = inspect.windows[n - 1]; if (!w || !endEl) return; const q = (w[0] + w[1]) / 2, er = endEl.getBoundingClientRect(), hr = host.getBoundingClientRect();
       global.scrollTo({ top: Math.round((global.scrollY || 0) + er.top - hr.top + q * Math.max(0, er.height - hr.height)), behavior: 'smooth' }); }
     let rows = null, activeRow = -1;
     // a monotone cubic through (ts[i], vs[i]), flat at both ends: no overshoot, and between the knots it never stops
@@ -479,7 +481,7 @@
       const ts = [0, 1], az = [azimuth0(), azimuth()], el = [+CONFIG.startElevation || 0, +CONFIG.elevation || 0], ld = [Math.log(d0), Math.log(d1)], ce = [1, 0], px = [ps.x, pe.x], py = [ps.y, pe.y];
       if (withPoses) inspect.poses.forEach((p, k) => { const wn = inspect.windows[k] || [1, 1], at = Array.isArray(p.hold) && p.hold.length === 2 ? [1 + +p.hold[0], 1 + +p.hold[1]] : [1 + (p.at == null ? (wn[0] + wn[1]) / 2 : +p.at)];   // a hold: the camera rests on the pose over that window
         for (const t of at) { if (t <= ts[ts.length - 1]) continue;
-          ts.push(t); az.push(p.azimuth == null ? azimuth() : +p.azimuth); el.push(p.elevation == null ? (+CONFIG.elevation || 0) : +p.elevation); ld.push(Math.log(zoomDist(p.zoom == null ? (+CONFIG.zoom || 0.36) : +p.zoom))); ce.push(+p.centre || 0); px.push(p.point ? +p.point.x : pe.x); py.push(p.point ? +p.point.y : pe.y); } });
+          ts.push(t); az.push(p.azimuth == null ? azimuth() : +p.azimuth); el.push(p.elevation == null ? (+CONFIG.elevation || 0) : +p.elevation); ld.push(Math.log(zoomDist(p.zoom == null ? (+CONFIG.zoom || 0.36) : +p.zoom))); ce.push(+p.centre || 0); const pp = isNarrow() ? p.pointNarrow : p.point; px.push(pp ? +pp.x : pe.x); py.push(pp ? +pp.y : pe.y); } });
       return { az: spline(ts, az, pos), el: spline(ts, el, pos), dist: Math.exp(spline(ts, ld, pos)), centre: spline(ts, ce, pos), px: spline(ts, px, pos), py: spline(ts, py, pos) };
     }
     // at this much of the inspection: the hotspots' opacities and which feature is active
@@ -493,7 +495,7 @@
     // the camera and everything that follows the scroll, for the current pos: the approach (its fades over its eased
     // progress e) running on into the inspection where there is one
     function place() {
-      const useInsp = !!(inspect && !isNarrow()), p = Math.min(1, pos), e = ease(p), q = useInsp ? Math.max(0, pos - 1) : 0;
+      const useInsp = !!inspect, p = Math.min(1, pos), e = ease(p), q = useInsp ? Math.max(0, pos - 1) : 0;
       const c = camAt(useInsp ? pos : p, useInsp);
       camTarget.copy(target).lerp(droneC, c.centre);
       aim(c.az * D2R, c.el * D2R, c.dist, c.px, c.py);
@@ -522,8 +524,8 @@
       else if (hot && hot.shown) { hot.shown = false; for (const it of hot.items) { it.shown = '0.000'; it.g.style.opacity = '0'; it.label.style.opacity = '0'; } }
       // the feature rows
       const active = s ? s.active : -1;
-      if (active !== activeRow && rows) { activeRow = active; for (const r of rows) r.el.classList.toggle(inspect.activeClass || 'is-active', r.n === active + 1); }
-      if (rows && inspect.fillVar) for (const r of rows) { const f = (s ? s.fills[r.n - 1] || 0 : 0).toFixed(2); if (r.fill !== f) { r.fill = f; r.el.style.setProperty(inspect.fillVar, f); } }
+      if (active !== activeRow && rows) { activeRow = active; for (const r of rows) { const on = r.n === active + 1; r.el.classList.toggle(inspect.activeClass || 'is-active', on); if (inspect.activeVar) r.el.style.setProperty(inspect.activeVar, on ? '1' : '0'); } }
+      if (rows && inspect.fillVar) { const nr = isNarrow(); for (const r of rows) { const v = s ? s.fills[r.n - 1] || 0 : 0, f = (nr ? Math.round(v * 50) / 50 : v).toFixed(2); if (r.fill !== f) { r.fill = f; r.el.style.setProperty(inspect.fillVar, f); } } }
       if (rows) for (const r of rows) { const w = inspect.windows[r.n - 1]; if (!w) continue; const reached = q >= w[0] ? true : q < w[0] - 0.02 ? false : !!r.reached; if (reached !== !!r.reached) { r.reached = reached; const n = reached ? inspect.reachEvent : inspect.unreachEvent; if (n) r.el.dispatchEvent(new CustomEvent(n, { bubbles: true })); } }
       dirty = true; shownPos = pos;
       if (endEl) { const a = pos >= 0.98 ? true : pos < 0.9 ? false : arrived; if (a !== arrived) { arrived = a; const n = a ? CONFIG.arriveEvent : CONFIG.leaveEvent; if (n) endEl.dispatchEvent(new CustomEvent(n, { bubbles: true })); } }
@@ -614,5 +616,5 @@
       .then(([, buf]) => new Promise((res, rej) => new global.THREE.GLTFLoader().parse(buf, url.replace(/[^/]*$/, ''), res, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '3.1.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '3.2.0' };
 })(typeof window !== 'undefined' ? window : this);

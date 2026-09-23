@@ -379,15 +379,17 @@ and the third lifts up and further round to the left to reveal a row of copies o
 exactly behind the motor along the profile's line of sight, and each further one is dimmer, so the row fades
 into the distance). Each pose has a window of that scroll (`windows`; the first window's start is the end
 of the intro) in which its feature row is active (`[data-inspect="1"]`.. rows get `is-active`, each row gets
-`--inspect-fill`, 0-1 through its window, for a progress bar, and a `drone:reach` event as the scroll reaches
+`--inspect-fill`, 0-1 through its window, for a progress bar, and `--inspect-active`, 1 while it is the
+active one — it inherits, so a child's styles can follow it where the class can't reach — and a `drone:reach` event as the scroll reaches
 its window, `drone:unreach` on the way back up past it; with `click` a click on a row scrolls the page to its
 window); the camera passes through the pose at the window's centre (or the pose's `at`, or rests on it over the pose's
 `hold` window, as the profile does while the copies appear), and a pose can
-shift the look-at point toward the drone's centre (`centre`) or elsewhere in the frame (`point`); a pose
-value of null is the arrival's. With `callouts`, each window also shows a callout on the housing (a straight
+shift the look-at point toward the drone's centre (`centre`) or elsewhere in the frame (`point`, and
+`pointNarrow` up to `breakpoint`; without one, a pose on a narrow screen uses the top-level narrow point,
+since its `point` is for the wide layout); a pose value of null is the arrival's. With `callouts`, each window also shows a callout on the housing (a straight
 leader to a small square with the pose's `label` above it, as the topo map's county marker; `leader`, `dot`,
 `hotspotClass`). The poses, the windows, `settle` and the rows selector are all in `inspect`; see `INSPECT`
-in the source for the defaults. The inspection is skipped up to `breakpoint`, where the arrival view holds.
+in the source for the defaults. The inspection runs on every screen size; up to `breakpoint` the fill is written in steps of 0.02.
 
 The camera is a real one and moves: with `track` set, it dollies along a path over that section's
 scroll, from the whole aircraft centred, dead level and head-on, round and down to beneath the front-left
