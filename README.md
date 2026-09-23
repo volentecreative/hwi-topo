@@ -129,7 +129,17 @@ Or the no-JavaScript way — give any element `data-topo` and it mounts itself:
 <script src="https://cdn.jsdelivr.net/gh/volentecreative/hwi-topo@a5ecd10/topo-turntable.js"></script>
 ```
 
-> The URL above is pinned to commit `065bdc3`, so it is permanent and served instantly. Swap the hash for a newer commit to pick up changes; `@main` also works but jsDelivr caches it for up to 24 h. The script loads its terrain from `data/` beside itself, so the pin covers the data too.
+> The URL above is pinned to a commit, so it is permanent and served instantly. Swap the hash for a newer commit to pick up changes; `@main` also works but jsDelivr caches it for up to 24 h. The script loads its terrain from `data/` beside itself, so the pin covers the data too.
+
+> Every script here fetches three.js from cdnjs and its own code (and, for the drone, the model) from jsDelivr, so warm both connections in the page `<head>` before the first embed is reached:
+>
+> ```html
+> <link rel="preconnect" href="https://cdnjs.cloudflare.com">
+> <link rel="preconnect" href="https://cdn.jsdelivr.net">
+> <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+> ```
+>
+> Scripts load on the credentialed connection and the model's `fetch` on the anonymous one, which is why jsDelivr gets both hints. (On the HWI site these live in the Home page's head custom code.)
 
 ## The descent
 
