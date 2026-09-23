@@ -430,9 +430,12 @@ Options: `focus` (the motor the path ends on: FL by default; FR, BR, BL, or `'FL
 a coaxial pair. The script reads two namings from the model: parts named for their position — "Motor Base
 FL", "Arm FR", "Propeller BL 2" — and parts grouped under an "Arm FL".. node and named as the engineer's
 export names them: the bell (the housing the ribs go round), base, shaft and flux ring of an "HWI-…"
-motor, its bell fillers, and the propeller's blades, hub, washer and nut. In HWI's model the positions
-are named from the pilot's seat, so the motor on the drone's front-right as the camera sees it from the
-front is `'FR'`);
+motor, its bell fillers (a filler that sits below the base is the arm's mount, and goes with the arm), and
+the propeller's blades, hub, washer and nut. In HWI's model the positions are named from the pilot's seat,
+so the motor on the drone's front-right as the camera sees it from the front is `'FR'`); `tilt` (degrees the
+drone is pitched nose-down about its centre, 0; the propellers still spin on their own axes) and `floor`
+(how far the floor grid sits below the drone's lowest point, in motor heights, 0 = resting on it — lift the
+drone if a low arrival elevation would take the camera under the floor);
 `track`, `runEnd` (a selector inside the track for the element whose top reaching the canvas ends the
 path, e.g. the section the drone arrives in, so the canvas can stay pinned across more than one section)
 and `damping` (0.12); `fov` (30°). Headings are about the drone: 0 = from the front, positive
@@ -451,7 +454,7 @@ the track's end, for fading the canvas out before the next section: e.g. `opacit
 the front), `startElevation` (0°, level), `margin` (1.25 round the whole drone, which
 is fitted to the frame from that heading). Also
 `propScroll` (turns per 1000px scrolled, 0.35) and `propSeconds` (idle turn, 0 = still); `props`
-(`'blades'`: two blades generated in place of the model's, or `'model'`: the model's own propellers, turning about their hubs), `blades`, `bladeChord`, `bladeTwist`; `grid` (cell in motor heights, 1)
+(`'blades'`: two blades generated in place of the model's, or `'model'`: the model's own propellers, turning about their hubs), `blades`, `bladeChord`, `bladeTwist`; `depthEdge` (0.012) and `normalEdge` (0.25, as 1 − cos of the angle between neighbouring normals that draws a crease; HWI's motor bell has shallow slots with rounded edges that only show from about 0.08); `grid` (cell in motor heights, 1)
 and `gridFade` (0.3; the grid also fades out toward its own edge, all round), `gridExtent` (24 motor
 heights from the drone's centre) and `gridWidth` (1px); `ribs`
 (24 per motor housing, along its straight wall, with a rim line round each end of the wall), `ribWidth` (1px)
