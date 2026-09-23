@@ -455,8 +455,8 @@ property that runs 0-1 over the last viewport of the track's scroll, as the pinn
 the track's end, for fading the canvas out before the next section: e.g. `opacity: calc(1 - var(--drone-exit, 0) * 2.5)`. The start: `startAzimuth` (0,
 the front), `startElevation` (0°, level), `margin` (1.25 round the whole drone, which
 is fitted to the frame from that heading). Also
-`propScroll` (turns per 1000px scrolled, 0.35) and `propSeconds` (idle turn, 0 = still); `props`
-(`'blades'`: two blades generated in place of the model's, or `'model'`: the model's own propellers, turning about their hubs), `blades`, `bladeChord`, `bladeTwist`; `depthEdge` (0.012) and `normalEdge` (0.25, as 1 − cos of the angle between neighbouring normals that draws a crease; HWI's motor bell has shallow slots with rounded edges that only show from about 0.08); `grid` (cell in motor heights, 1)
+`propScroll` (turns per 1000px scrolled, 0.35), `propSeconds` (idle turn, 0 = still) and `propPhase` (the propellers' starting angle in degrees, the same for all so they read as a set; null = each at random — a three-blade seen from the front with a blade pointing at the camera shows that blade's pitch as a twisted stub over the hub, so a shared angle keeps the set looking alike); `props`
+(`'blades'`: two blades generated in place of the model's, or `'model'`: the model's own propellers, turning about their hubs), `blades`, `bladeChord`, `bladeTwist`; `depthEdge` (0.012), `normalEdge` (0.25, as 1 − cos of the angle between neighbouring normals that draws a crease) and `normalEdgeMotor` (the same on the motors alone, the focused one, the others and the copies; null = normalEdge. HWI's motor bell has shallow slots with rounded edges that only show from about 0.08, and the motors are the only place that low a threshold is wanted); `grid` (cell in motor heights, 1)
 and `gridFade` (0.3; the grid also fades out toward its own edge, all round), `gridExtent` (24 motor
 heights from the drone's centre) and `gridWidth` (1px); `ribs`
 (24 per motor housing, along its straight wall, with a rim line round each end of the wall), `ribWidth` (1px)

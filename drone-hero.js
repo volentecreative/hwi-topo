@@ -76,6 +76,7 @@
     margin: 1.25,              // breathing room round the whole drone at the start (1 = its silhouette touches the frame)
     propScroll: 0.35,          // propeller turns per 1000px of scrolling; 0 = the props do not follow the scroll
     propSeconds: 0,            // seconds per idle turn of every propeller; 0 = still unless scrolled
+    propPhase: null,           // the propellers' starting angle, in degrees (the same for all, so they read as a set); null = each at random
     props: 'blades',           // 'blades': generated blades in place of the model's; 'model': the model's own
     blades: 2, bladeChord: 0.2, bladeTwist: 22,   // per propeller: blade count, widest chord as a share of the radius, root twist in degrees
     grid: 1, gridFade: 0.3,    // the floor grid's cell, in motor heights (0 = none), and how far from the motor it starts fading (share of the frame's half-size; it is gone by the edges — and by the grid's own edge, in every direction)
@@ -83,6 +84,7 @@
     ribs: 24, ribWidth: 1, ribOpacity: 0.8,   // vertical ribs round each motor's casing (0 = none), their width in CSS pixels and opacity
     lineWidth: 1,              // the edge lines' thickness, in screen pixels
     depthEdge: 0.012, normalEdge: 0.25,   // how big a jump in depth (relative) or in normal (1 - cos) draws a line
+    normalEdgeMotor: null,     // the normal threshold on the motors alone (the focused one, the others and the copies), e.g. lower for a shell with shallow slots; null = normalEdge
     supersample: 2,            // the edge pass runs at this many times the canvas resolution and averages, so the lines are antialiased
     pixelBudget: 8e6,          // the most pixels the edge pass holds at once; a frame that needs more is rendered in tiles, so the quality never drops
     primary: 'var(--drone-primary, var(--topo-label, #f2f2f0))',
@@ -179,7 +181,7 @@
   const ID_VERT = 'varying vec3 vN; void main(){ vN = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }';
   const ID_FRAG = 'uniform float uId; varying vec3 vN; void main(){ gl_FragColor = vec4(normalize(vN) * 0.5 + 0.5, uId); }';
   const EDGE_FRAG = `
-    uniform sampler2D tN, tD; uniform vec2 uRes; uniform vec4 uTile; uniform float uNear, uFar, uWidth, uDepthT, uNormT, uFlagA, uDroneA, uCopyA, uCopyP, uCopyN, uFocusMin, uMotorMin, uCopyTop; uniform vec3 uC1, uC2;
+    uniform sampler2D tN, tD; uniform vec2 uRes; uniform vec4 uTile; uniform float uNear, uFar, uWidth, uDepthT, uNormT, uNormTM, uFlagA, uDroneA, uCopyA, uCopyP, uCopyN, uFocusMin, uMotorMin, uCopyTop; uniform vec3 uC1, uC2;
     float lin(float z){ float zn = 2.0 * z - 1.0; return 2.0 * uNear * uFar / (uFar + uNear - zn * (uFar - uNear)); }
     // the line at one point of the (supersampled) pass: 0 = none, 1 = a line, and which colour it takes
     float edgeAt(vec2 uv, out vec3 col){
@@ -204,7 +206,7 @@
         for (int k = 0; k < 2; k++) { vec4 cn = k == 0 ? c1 : c2; float dn = k == 0 ? d1 : d2; bool own = k == 0 ? own1 : own2;
           if (own && abs(dn - d) / d < uDepthT * 2.0) { vec3 nn = normalize(cn.xyz * 2.0 - 1.0);
             float key = dot(n, vec3(0.3, 0.59, 0.11)), keyn = dot(nn, vec3(0.3, 0.59, 0.11));
-            e = max(e, key >= keyn ? smoothstep(uNormT, uNormT * 2.0, 1.0 - dot(n, nn)) : 0.0); } }
+            float nt = c.a > 0.6 ? uNormTM : uNormT; e = max(e, key >= keyn ? smoothstep(nt, nt * 2.0, 1.0 - dot(n, nn)) : 0.0); } }   // (the motors have their own threshold)
       }
       return e * fa;
     }
@@ -281,7 +283,7 @@
     const depthTex = new THREE.DepthTexture(1, 1); depthTex.type = isGL2 ? THREE.UnsignedIntType : THREE.UnsignedShortType;
     const rt = new THREE.WebGLRenderTarget(1, 1, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthTexture: depthTex, depthBuffer: true, stencilBuffer: false });
     const edgeMat = new THREE.ShaderMaterial({ transparent: true, depthTest: false, depthWrite: false, blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendEquation: THREE.AddEquation, vertexShader: 'void main(){ gl_Position = vec4(position.xy, 0.0, 1.0); }', fragmentShader: EDGE_FRAG,
-      uniforms: { tN: { value: rt.texture }, tD: { value: depthTex }, uRes: { value: new THREE.Vector2(1, 1) }, uTile: { value: new THREE.Vector4(0, 0, 1, 1) }, uNear: { value: camera.near }, uFar: { value: camera.far }, uWidth: { value: 1 }, uDepthT: { value: +CONFIG.depthEdge || 0.012 }, uNormT: { value: +CONFIG.normalEdge || 0.25 }, uFlagA: { value: 1 }, uDroneA: { value: 1 }, uCopyA: { value: 0 }, uCopyP: { value: 1 }, uCopyN: { value: 1 }, uFocusMin: { value: 1 }, uMotorMin: { value: 1 }, uCopyTop: { value: 254 }, uC1: { value: new THREE.Color(CONFIG.primary) }, uC2: { value: new THREE.Color(CONFIG.secondary) } } });
+      uniforms: { tN: { value: rt.texture }, tD: { value: depthTex }, uRes: { value: new THREE.Vector2(1, 1) }, uTile: { value: new THREE.Vector4(0, 0, 1, 1) }, uNear: { value: camera.near }, uFar: { value: camera.far }, uWidth: { value: 1 }, uDepthT: { value: +CONFIG.depthEdge || 0.012 }, uNormT: { value: +CONFIG.normalEdge || 0.25 }, uFlagA: { value: 1 }, uDroneA: { value: 1 }, uCopyA: { value: 0 }, uCopyP: { value: 1 }, uCopyN: { value: 1 }, uFocusMin: { value: 1 }, uMotorMin: { value: 1 }, uCopyTop: { value: 254 }, uNormTM: { value: CONFIG.normalEdgeMotor == null ? (+CONFIG.normalEdge || 0.25) : +CONFIG.normalEdgeMotor }, uC1: { value: new THREE.Color(CONFIG.primary) }, uC2: { value: new THREE.Color(CONFIG.secondary) } } });
     // the quad the lines are drawn with covers one tile of the canvas at a time
     const quadGeo = new THREE.BufferGeometry(); quadGeo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(12), 3)); quadGeo.setIndex([0, 1, 2, 0, 2, 3]);
     const quadScene = new THREE.Scene(), quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1); const quad = new THREE.Mesh(quadGeo, edgeMat); quad.frustumCulled = false; quadScene.add(quad);
@@ -341,7 +343,7 @@
     // the model's own propellers turn about their hubs: each part's geometry is moved so the hub's axis is its origin, and the mesh put back there
     for (const { m, pos } of modelProps) { const hb = hubs[pos] || propInfo[pos]; if (!hb) continue; const c = new THREE.Vector3(); hb.getCenter(c);
       m.geometry.translate(-c.x, 0, -c.z); m.geometry.computeBoundingBox(); m.geometry.computeBoundingSphere(); m.position.set(c.x, 0, c.z);
-      let pr = props.find(p => p.mesh === m); if (!pr) { const ring = / 2$/.test(pos) ? 1 : 0, quad = /^(FR|BL)/.test(pos) ? 1 : -1; props.push({ mesh: m, dir: quad * (ring ? -1 : 1), phase: propPhase[pos] == null ? (propPhase[pos] = Math.random() * Math.PI * 2) : propPhase[pos] }); } }
+      let pr = props.find(p => p.mesh === m); if (!pr) { const ring = / 2$/.test(pos) ? 1 : 0, quad = /^(FR|BL)/.test(pos) ? 1 : -1; props.push({ mesh: m, dir: quad * (ring ? -1 : 1), phase: propPhase[pos] == null ? (propPhase[pos] = CONFIG.propPhase == null ? Math.random() * Math.PI * 2 : +CONFIG.propPhase * D2R) : propPhase[pos] }); } }
     { let top = 255; const setId = (m, id) => { m.userData.idMat.uniforms.uId.value = id / 255; };   // the ids from the top, now the parts are known
       for (const m of solids) if (m.userData.kind === 'focus') setId(m, top--); ids.focusMin = top + 1;
       for (const m of solids) if (m.userData.kind === 'motor') setId(m, top--); ids.motorMin = top + 1; ids.copyTop = top;
@@ -352,7 +354,7 @@
       const g = propellerGeometry(THREE, R, r0, Math.max(2, CONFIG.blades | 0), +CONFIG.bladeChord || 0.2, +CONFIG.bladeTwist || 22); tris += g.index.count / 3;
       const m = solid(g, false); m.position.set(c.x, y, c.z);
       const ring = / 2$/.test(pos) ? 1 : 0, quad = /^(FR|BL)/.test(pos) ? 1 : -1;
-      props.push({ mesh: m, dir: quad * (ring ? -1 : 1), phase: Math.random() * Math.PI * 2 });
+      props.push({ mesh: m, dir: quad * (ring ? -1 : 1), phase: CONFIG.propPhase == null ? Math.random() * Math.PI * 2 : +CONFIG.propPhase * D2R });
     }
     // the motors' ribbing: vertical lines round each one's tallest casing part, just off its surface
     // the housings' ribbing: vertical lines along each one's straight wall, just off its surface, and a rim line round
@@ -654,7 +656,7 @@
     const ro = global.ResizeObserver ? new ResizeObserver(frame) : null; if (ro) ro.observe(host); else addEventListener('resize', frame);
     frame();
     return {
-      set(patch) { Object.assign(CONFIG, patch || {}); for (const k of COLOR_KEYS) if (patch && k in patch) { RAW[k] = patch[k]; lastColors = ''; } edgeMat.uniforms.uDepthT.value = +CONFIG.depthEdge || 0.012; edgeMat.uniforms.uNormT.value = +CONFIG.normalEdge || 0.25; if (patch && ('grid' in patch || 'gridExtent' in patch)) buildGrid(); applyColors(); onScroll(); frame(); },
+      set(patch) { Object.assign(CONFIG, patch || {}); for (const k of COLOR_KEYS) if (patch && k in patch) { RAW[k] = patch[k]; lastColors = ''; } edgeMat.uniforms.uDepthT.value = +CONFIG.depthEdge || 0.012; edgeMat.uniforms.uNormT.value = +CONFIG.normalEdge || 0.25; edgeMat.uniforms.uNormTM.value = CONFIG.normalEdgeMotor == null ? (+CONFIG.normalEdge || 0.25) : +CONFIG.normalEdgeMotor; if (patch && ('grid' in patch || 'gridExtent' in patch)) buildGrid(); applyColors(); onScroll(); frame(); },
       setProgress(p, q) { progressTarget = progress = Math.min(1, Math.max(0, +p || 0)); inspTarget = insp = Math.min(1, Math.max(0, +q || 0)); posTarget = pos = progress + insp; place(); },
       get state() { const d = camera.position.clone().sub(camTarget); return { focus: key, azimuth: azimuth(), startAzimuth: azimuth0(), progress, inspect: insp, heading: [Math.atan2(d.x, d.z) / D2R, Math.atan2(d.y, Math.hypot(d.x, d.z)) / D2R, d.length()], motorHeight: motorH, triangles: tris, props: props.length, pixelRatio: renderer.getPixelRatio(), edgePass: [rt.width, rt.height], tiles: T.nx * T.ny }; },
       destroy() { alive = false; clearInterval(themeWatch); io.disconnect(); removeEventListener('scroll', onScroll); if (ro) ro.disconnect(); else removeEventListener('resize', frame); rt.dispose(); renderer.dispose(); renderer.domElement.remove(); }
@@ -672,5 +674,5 @@
       .then(([, buf]) => new Promise((res, rej) => new global.THREE.GLTFLoader().parse(buf, url.replace(/[^/]*$/, ''), res, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '3.10.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '3.11.0' };
 })(typeof window !== 'undefined' ? window : this);
