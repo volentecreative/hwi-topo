@@ -417,7 +417,7 @@ damped, so a fast flick cannot expose an intermediate frame. Without a track it 
     …the copy…
   </div>
 </section>
-<script src="https://cdn.jsdelivr.net/gh/volentecreative/hwi-topo@687f7e6/drone-hero.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/volentecreative/hwi-topo@1a5fdf3/drone-hero.js"></script>
 <script>DroneHero.mount('#drone', { track: 'closest:.section_hero' });</script>
 ```
 
