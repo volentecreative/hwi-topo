@@ -69,7 +69,7 @@
     // active. null = none. See INSPECT for the defaults; pass any subset to change them
     inspect: null,
     // the start of the path: the whole aircraft, centred, level, from the front
-    tilt: 0,                   // degrees the drone is pitched nose-down about its centre (negative = nose-up), as if under way
+    tilt: 0,                   // degrees the drone is pitched nose-down about its centre at the top of the page (negative = nose-up), as if under way; it levels out over the approach and arrives flat
     floor: 0,                  // how far the floor grid sits below the drone's lowest point, in motor heights (0 = it rests on the floor)
     startAzimuth: 0,           // camera heading at the start; 0 = the front view
     startElevation: 0,         // degrees above the horizon at the start; 0 = dead level
@@ -259,6 +259,7 @@
     Object.assign(renderer.domElement.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', display: 'block' });
     host.appendChild(renderer.domElement);
     const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(+CONFIG.fov || 30, 1, 0.05, 200);
+    const pivot = new THREE.Group(), rig = new THREE.Group(); pivot.add(rig); scene.add(pivot);   // the drone rides in the rig, pivoted on its centre: the tilt turns the pivot, and eases away over the approach
     const faceMat = new THREE.MeshBasicMaterial({ color: CONFIG.face, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
     const lineMaterial = (color, fade, opacity) => new THREE.ShaderMaterial({ vertexShader: LINE_VERT, fragmentShader: LINE_FRAG, transparent: true, depthWrite: false, side: THREE.DoubleSide,
       uniforms: { uRes: { value: new THREE.Vector2(1, 1) }, uFocus: { value: new THREE.Vector2() }, uHalf: { value: 1 }, uWidth: { value: 1 }, uNear: { value: 0.05 }, uFade0: { value: 0.3 }, uFadeOn: { value: fade ? 1 : 0 }, uCentre: { value: new THREE.Vector2() }, uExtent: { value: 1 }, uColor: { value: new THREE.Color(color) }, uBg: { value: new THREE.Color(CONFIG.face) }, uOpacity: { value: opacity } } });
@@ -274,7 +275,7 @@
     // above 153 primary, and fades each kind on its own; the bands' bounds go to it as uniforms)
     const solids = []; const ids = { rest: 0, focusMin: 255, motorMin: 255, copyTop: 254 };
     const solid = (g, kind, fixedId) => { const m = new THREE.Mesh(g, faceMat); kind = kind === true ? 'motor' : kind || (fixedId ? 'flag' : 'rest'); const id = fixedId || (kind === 'rest' ? ++ids.rest : 0);
-      m.userData.kind = kind; m.userData.idMat = new THREE.ShaderMaterial({ vertexShader: ID_VERT, fragmentShader: ID_FRAG, uniforms: { uId: { value: id / 255 } } }); solids.push(m); scene.add(m); return m; };
+      m.userData.kind = kind; m.userData.idMat = new THREE.ShaderMaterial({ vertexShader: ID_VERT, fragmentShader: ID_FRAG, uniforms: { uId: { value: id / 255 } } }); solids.push(m); (kind === 'flag' ? scene : rig).add(m); return m; };
     // the edge pass's target and quad
     const isGL2 = renderer.capabilities.isWebGL2;
     const depthTex = new THREE.DepthTexture(1, 1); depthTex.type = isGL2 ? THREE.UnsignedIntType : THREE.UnsignedShortType;
@@ -302,7 +303,7 @@
     const hubs = {}, propInfo = {}, props = [], modelProps = [], propPhase = {};
     const meshes = []; gltf.scene.traverse(o => { if (o.isMesh && !skip(o.name)) meshes.push(o); });
     // the tilt: the whole drone pitched about its centre (the propellers are turned with it separately, so they still spin on their own axes)
-    const tiltRad = (+CONFIG.tilt || 0) * D2R, tiltM = new THREE.Matrix4(); if (tiltRad) { const c0 = new THREE.Box3().setFromObject(gltf.scene).getCenter(new THREE.Vector3()); tiltM.makeTranslation(c0.x, c0.y, c0.z).multiply(new THREE.Matrix4().makeRotationX(tiltRad)).multiply(new THREE.Matrix4().makeTranslation(-c0.x, -c0.y, -c0.z)); }
+    const tiltRad = (+CONFIG.tilt || 0) * D2R;   // the rig is pivoted on the drone's centre once the parts are read (below); the tilt is set on it each frame (place)
     // a motor's mount: a "filler" that sits below the motor's base is the arm's mount, not the motor — it goes with the arm
     const baseBottom = {}; for (const o of meshes) { const info = partOf(o); if (info && info.part === 'Motor Coil') { const b = (o.geometry.boundingBox || (o.geometry.computeBoundingBox(), o.geometry.boundingBox)).clone().applyMatrix4(o.matrixWorld); baseBottom[info.pos] = Math.min(baseBottom[info.pos] == null ? Infinity : baseBottom[info.pos], b.min.y); } }
     // the skids (the long tubes), so the struts can be carried down to them
@@ -321,7 +322,7 @@
     for (const o of meshes) {
       const g = o.geometry.clone(); g.applyMatrix4(o.matrixWorld); extendLeg(o, g); if (!g.attributes.normal) g.computeVertexNormals(); g.computeBoundingBox();
       const info = partOf(o); if (info && info.part === 'Motor Cap' && baseBottom[info.pos] != null && (g.boundingBox.min.y + g.boundingBox.max.y) / 2 < baseBottom[info.pos]) info.part = 'Arm';   // the mount under the base
-      const isProp = !!(info && (info.part === 'Propeller' || info.part === 'Prop Hub')); if (tiltRad && !isProp) g.applyMatrix4(tiltM); if (!isProp || CONFIG.props === 'model') all.union(g.boundingBox);   // (the propellers are tilted as meshes, below)
+      const isProp = !!(info && (info.part === 'Propeller' || info.part === 'Prop Hub')); if (!isProp || CONFIG.props === 'model') all.union(g.boundingBox);
       const isFocus = !!(info && info.pos === key), inFocus = !!(info && (info.pos === keyBase || info.pos === keyBase + ' 2'));   // the ring named, for the framing; the whole stack at that position (both rings of the coaxial pair), for what stays and what is copied
       const mine = !!(info && /^Motor/.test(info.part));
       if (mine) { if (isFocus) motorBox.union(g.boundingBox);
@@ -336,9 +337,10 @@
       const m = solid(g, mine ? (inFocus ? 'focus' : 'motor') : 'rest');
       if (info && CONFIG.props === 'model' && (info.part === 'Propeller' || info.part === 'Prop Hub')) modelProps.push({ m, pos: info.pos });   // the model's own propeller: it turns, about its hub
     }
+    { const c0 = all.getCenter(new THREE.Vector3()); pivot.position.copy(c0); rig.position.copy(c0).negate(); }   // the rig turns about the drone's centre
     // the model's own propellers turn about their hubs: each part's geometry is moved so the hub's axis is its origin, and the mesh put back there
     for (const { m, pos } of modelProps) { const hb = hubs[pos] || propInfo[pos]; if (!hb) continue; const c = new THREE.Vector3(); hb.getCenter(c);
-      m.geometry.translate(-c.x, 0, -c.z); m.geometry.computeBoundingBox(); m.geometry.computeBoundingSphere(); m.position.set(c.x, 0, c.z).applyMatrix4(tiltM); m.rotation.order = 'XYZ'; m.rotation.x = tiltRad;
+      m.geometry.translate(-c.x, 0, -c.z); m.geometry.computeBoundingBox(); m.geometry.computeBoundingSphere(); m.position.set(c.x, 0, c.z);
       let pr = props.find(p => p.mesh === m); if (!pr) { const ring = / 2$/.test(pos) ? 1 : 0, quad = /^(FR|BL)/.test(pos) ? 1 : -1; props.push({ mesh: m, dir: quad * (ring ? -1 : 1), phase: propPhase[pos] == null ? (propPhase[pos] = Math.random() * Math.PI * 2) : propPhase[pos] }); } }
     { let top = 255; const setId = (m, id) => { m.userData.idMat.uniforms.uId.value = id / 255; };   // the ids from the top, now the parts are known
       for (const m of solids) if (m.userData.kind === 'focus') setId(m, top--); ids.focusMin = top + 1;
@@ -348,7 +350,7 @@
       const pb = propInfo[pos], hb = hubs[pos] || pb, c = new THREE.Vector3(); hb.getCenter(c);
       const R = Math.max(pb.max.x - pb.min.x, pb.max.z - pb.min.z) / 2, r0 = Math.max(hb.max.x - hb.min.x, hb.max.z - hb.min.z) / 2 * 0.9, y = (pb.min.y + pb.max.y) / 2;
       const g = propellerGeometry(THREE, R, r0, Math.max(2, CONFIG.blades | 0), +CONFIG.bladeChord || 0.2, +CONFIG.bladeTwist || 22); tris += g.index.count / 3;
-      const m = solid(g, false); m.position.set(c.x, y, c.z).applyMatrix4(tiltM); m.rotation.order = 'XYZ'; m.rotation.x = tiltRad;
+      const m = solid(g, false); m.position.set(c.x, y, c.z);
       const ring = / 2$/.test(pos) ? 1 : 0, quad = /^(FR|BL)/.test(pos) ? 1 : -1;
       props.push({ mesh: m, dir: quad * (ring ? -1 : 1), phase: Math.random() * Math.PI * 2 });
     }
@@ -361,8 +363,8 @@
       for (const pos of Object.keys(coils)) { const { c, y0, y1 } = coils[pos], r = coils[pos].r * 1.004, a = [];
         for (let k = 0; k < CONFIG.ribs; k++) { const t = (k + 0.5) / CONFIG.ribs * Math.PI * 2, x = c.x + Math.cos(t) * r, z = c.z + Math.sin(t) * r; a.push(x, y0, z, x, y1, z); }
         for (const y of [y0, y1]) for (let k = 0; k < N; k++) { const t0 = k / N * Math.PI * 2, t1 = (k + 1) / N * Math.PI * 2; a.push(c.x + Math.cos(t0) * r, y, c.z + Math.sin(t0) * r, c.x + Math.cos(t1) * r, y, c.z + Math.sin(t1) * r); }
-        if (pos === key) { focusRibs = a; scene.add(lineMesh(a, ribMat)); } else { droneRibs = droneRibs || []; droneRibs.push(...a); } }
-      if (droneRibs) { droneRibs = lineMesh(droneRibs, droneRibMat); scene.add(droneRibs); }
+        if (pos === key) { focusRibs = a; rig.add(lineMesh(a, ribMat)); } else { droneRibs = droneRibs || []; droneRibs.push(...a); } }
+      if (droneRibs) { droneRibs = lineMesh(droneRibs, droneRibMat); rig.add(droneRibs); }
     }
     // ---- the motor copies: the focused motor's parts (and ribs) repeated behind it along the profile pose's line of sight,
     // so from the profile they hide behind it and the last pose, lifting off that line, reveals the row
@@ -375,7 +377,7 @@
       for (let k = 1; k <= n; k++) { const off = step.clone().multiplyScalar(k);
         parts.forEach((m, j) => { const g = m.geometry.clone().translate(off.x, off.y, off.z); const c = solid(g, 'copy', ids.copyTop - (k - 1) * P - j); c.visible = false; copies.meshes.push(c); tris += g.index ? g.index.count / 3 : g.attributes.position.count / 3; });
         if (focusRibs.length) { const a = new Array(focusRibs.length); for (let i = 0; i < focusRibs.length; i += 3) { a[i] = focusRibs[i] + off.x; a[i + 1] = focusRibs[i + 1] + off.y; a[i + 2] = focusRibs[i + 2] + off.z; }
-          const mat = lineMaterial(CONFIG.primary, false, 0); lineMats.push(mat); ribMats.add(mat); const mesh = lineMesh(a, mat); mesh.visible = false; scene.add(mesh); copies.ribs.push(mesh); copies.mats.push(mat); } }
+          const mat = lineMaterial(CONFIG.primary, false, 0); lineMats.push(mat); ribMats.add(mat); const mesh = lineMesh(a, mat); mesh.visible = false; rig.add(mesh); copies.ribs.push(mesh); copies.mats.push(mat); } }
     }
     // ---- the flag: a cloth hung from its top edge behind the drone, its faces occluding like the rest, the stripes,
     // canton and stars drawn as lines on the surface; every point is displaced each frame by a slow, soft wave
@@ -529,7 +531,8 @@
       const useInsp = !!inspect, p = Math.min(1, pos), e = ease(p), q = useInsp ? Math.max(0, pos - 1) : 0;
       let cpos = useInsp ? pos : p; if (useInsp) { const WL = inspect.windows[inspect.windows.length - 1] || [0, 1], L = inspect.easeOut == null ? WL[1] - WL[0] : +inspect.easeOut; if (L > 0 && pos > 2 - L) { const u = Math.min(1, (pos - (2 - L)) / L); cpos = 2 - L + L * (u + u * u - u * u * u); } }   // the last stretch eased out: the camera's speed falls smoothly to nothing at the end (easeOut)
       const c = camAt(cpos, useInsp);
-      camTarget.copy(target).lerp(droneC, c.centre);
+      pivot.rotation.x = tiltRad * (1 - e); pivot.updateMatrixWorld(true);   // pitched at the top of the page, level by the arrival
+      camTarget.copy(target).lerp(droneC, c.centre).applyMatrix4(rig.matrixWorld);   // the look-at point, as the tilt has moved it
       aim(c.az * D2R, c.el * D2R, c.dist, c.px, c.py);
       fadeGrid(); motorColor(e);
       if (flag) { const w = CONFIG.flagFade, f = Array.isArray(w) && w.length === 2 && w[1] > w[0] ? 1 - Math.min(1, Math.max(0, (e - w[0]) / (w[1] - w[0]))) : 1; flag.mat.uniforms.uOpacity.value = (+CONFIG.flagOpacity || 0.85) * f; edgeMat.uniforms.uFlagA.value = f;
@@ -669,5 +672,5 @@
       .then(([, buf]) => new Promise((res, rej) => new global.THREE.GLTFLoader().parse(buf, url.replace(/[^/]*$/, ''), res, rej)))
       .then(gltf => build(host, CONFIG, gltf));
   }
-  global.DroneHero = { mount, defaults: DEFAULTS, version: '3.9.0' };
+  global.DroneHero = { mount, defaults: DEFAULTS, version: '3.10.0' };
 })(typeof window !== 'undefined' ? window : this);

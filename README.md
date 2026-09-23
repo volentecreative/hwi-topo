@@ -433,7 +433,9 @@ export names them: the bell (the housing the ribs go round), base, shaft and flu
 motor, its bell fillers (a filler that sits below the base is the arm's mount, and goes with the arm), and
 the propeller's blades, hub, washer and nut. In HWI's model the positions are named from the pilot's seat,
 so the motor on the drone's front-right as the camera sees it from the front is `'FR'`); `tilt` (degrees the
-drone is pitched nose-down about its centre, 0; the propellers still spin on their own axes) and `floor`
+drone is pitched nose-down about its centre at the top of the page, 0, as if under way; it levels out over
+the approach and arrives flat — the drone rides in a group pivoted on its centre, so the propellers keep
+spinning on their own axes) and `floor`
 (how far the floor grid sits below the drone's lowest point, in motor heights, 0 = resting on it — lift the
 drone if a low arrival elevation would take the camera under the floor);
 `track`, `runEnd` (a selector inside the track for the element whose top reaching the canvas ends the
